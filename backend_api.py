@@ -31,16 +31,31 @@ def read_root():
     with open("index.html", "r", encoding="utf-8") as f:
         return f.read()
 
-# --- FUNCIONES MATEMÁTICAS (Tu motor) ---
 def obtener_datos(limit=1000):
-    url = "https://api.binance.com/api/v3/klines"
+    # Intentamos con la API principal
+    urls = [
+        "https://api.binance.com/api/v3/klines",       # Opción A (Global)
+        "https://api.binance.us/api/v3/klines",        # Opción B (US)
+        "https://api1.binance.com/api/v3/klines",      # Opción C (Cluster 1)
+        "https://api2.binance.com/api/v3/klines",      # Opción D (Cluster 2)
+        "https://api3.binance.com/api/v3/klines"       # Opción E (Cluster 3)
+    ]
+    
     params = {"symbol": "BTCUSDT", "interval": "15m", "limit": limit}
-    try:
-        data = requests.get(url, params=params).json()
-        precios = np.array([float(x[4]) for x in data])
-        return precios
-    except:
-        return np.array([])
+    
+    for url in urls:
+        try:
+            # Ponemos un timeout corto (2s) para probar rápido
+            response = requests.get(url, params=params, timeout=2)
+            if response.status_code == 200:
+                data = response.json()
+                precios = np.array([float(x[4]) for x in data])
+                return precios
+        except:
+            continue # Si falla, probamos la siguiente URL
+            
+    # Si todas fallan, devolvemos array vacío
+    return np.array([])
 
 def generar_grafico_base64(precios):
     try:
