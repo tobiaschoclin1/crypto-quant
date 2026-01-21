@@ -5,63 +5,38 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Crypto Quant Pro</title>
     <style>
-        body {
-            background-color: #0b1220;
-            color: white;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            height: 100vh;
-        }
+        body { background-color: #0b1220; color: white; font-family: sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
         .header { text-align: center; margin-bottom: 20px; }
         .price { font-size: 48px; font-weight: bold; margin: 10px 0; }
         .decision { font-size: 18px; font-weight: 500; color: gray; text-transform: uppercase; }
         
-        .chart-container {
-            width: 100%;
-            max-width: 400px;
-            height: 220px;
-            background: #111827;
-            border-radius: 12px;
-            padding: 10px;
-            box-sizing: border-box;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin-bottom: 20px;
-        }
+        .chart-container { width: 100%; max-width: 400px; height: 220px; background: #111827; border-radius: 12px; padding: 10px; box-sizing: border-box; display: flex; justify-content: center; align-items: center; margin-bottom: 20px; }
         img#chart { width: 100%; height: 100%; object-fit: contain; }
 
-        .metrics { display: flex; width: 100%; max-width: 400px; gap: 20px; }
-        .score-box {
-            position: relative;
-            width: 80px;
-            height: 80px;
+        /* NUEVA SECCIÓN: SIMULADOR */
+        .wallet-card {
+            width: 100%; max-width: 400px;
+            background: linear-gradient(135deg, #1e3a8a, #1e40af);
+            border-radius: 12px;
+            padding: 15px;
+            box-sizing: border-box;
+            margin-bottom: 20px;
             display: flex;
-            justify-content: center;
+            justify-content: space-between;
             align-items: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
         }
-        .score-ring {
-            width: 80px; height: 80px; border-radius: 50%;
-            border: 8px solid #334155;
-            position: absolute;
-        }
+        .wallet-info h3 { margin: 0; font-size: 12px; color: #bfdbfe; text-transform: uppercase; letter-spacing: 1px; }
+        .wallet-balance { font-size: 24px; font-weight: bold; margin-top: 5px; }
+        .wallet-status { font-size: 12px; padding: 4px 8px; border-radius: 20px; background: rgba(255,255,255,0.2); font-weight: bold; }
+
+        .metrics { display: flex; width: 100%; max-width: 400px; gap: 20px; }
+        .score-box { position: relative; width: 80px; height: 80px; display: flex; justify-content: center; align-items: center; }
+        .score-ring { width: 80px; height: 80px; border-radius: 50%; border: 8px solid #334155; position: absolute; }
         .score-val { font-size: 24px; font-weight: bold; z-index: 2; }
         
         .details { flex: 1; display: flex; flex-direction: column; gap: 8px; }
-        .detail-card {
-            background: #1f2937;
-            padding: 10px;
-            border-radius: 8px;
-            font-size: 12px;
-            color: #cbd5e1;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
+        .detail-card { background: #1f2937; padding: 10px; border-radius: 8px; font-size: 12px; color: #cbd5e1; display: flex; align-items: center; gap: 8px; }
     </style>
 </head>
 <body>
@@ -70,6 +45,15 @@
         <div style="color: gray; font-size: 14px;">BTC/USDT</div>
         <div class="price" id="price">---</div>
         <div class="decision" id="decision">Sincronizando...</div>
+    </div>
+
+    <div class="wallet-card">
+        <div class="wallet-info">
+            <h3>Simulador (Paper Trading)</h3>
+            <div class="wallet-balance" id="sim-balance">$1,000.00</div>
+            <div style="font-size: 11px; color: #bfdbfe; margin-top: 4px;" id="sim-details">Trades: 0</div>
+        </div>
+        <div class="wallet-status" id="sim-status">LIQUIDO (USDT)</div>
     </div>
 
     <div class="chart-container">
@@ -81,12 +65,10 @@
             <div class="score-ring" id="ring"></div>
             <div class="score-val" id="score">0</div>
         </div>
-        <div class="details" id="details-list">
-            </div>
+        <div class="details" id="details-list"></div>
     </div>
 
     <script>
-        // TU IP (La misma que usaste en el navegador)
         const API_URL = "/analisis";
 
         async function updateData() {
@@ -94,55 +76,66 @@
                 const response = await fetch(API_URL);
                 const data = await response.json();
 
-                // 1. Actualizar Precio
-                const priceEl = document.getElementById('price');
-                priceEl.innerText = "$" + data.precio.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-
-                // 2. Actualizar Decisión
+                // 1. Precios y Decisión
+                document.getElementById('price').innerText = "$" + data.precio.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 const decEl = document.getElementById('decision');
                 decEl.innerText = data.decision;
                 
-                // Color según score
                 let color = "gray";
-                if (data.score >= 8) color = "#4ade80"; // Green
-                else if (data.score <= 3) color = "#f87171"; // Red
-                else color = "#fbbf24"; // Orange
-                
+                if (data.score >= 8) color = "#4ade80"; 
+                else if (data.score <= 3) color = "#f87171"; 
+                else color = "#fbbf24"; 
                 decEl.style.color = color;
 
-                // 3. Actualizar Gráfico
-                if (data.grafico_img) {
-                    document.getElementById('chart').src = data.grafico_img;
-                }
+                // 2. Gráfico
+                if (data.grafico_img) document.getElementById('chart').src = data.grafico_img;
 
-                // 4. Actualizar Score
+                // 3. Score
                 document.getElementById('score').innerText = data.score;
                 document.getElementById('ring').style.borderColor = color;
 
-                // 5. Lista de Detalles
+                // 4. Detalles
                 const list = document.getElementById('details-list');
-                list.innerHTML = ''; // Limpiar
+                list.innerHTML = ''; 
                 data.detalles.forEach(det => {
                     const isGood = det.includes("✅");
                     const text = det.replace(/✅|❌|⚠️/g, '').trim();
                     const icon = isGood ? "✓" : "!";
-                    
                     const div = document.createElement('div');
                     div.className = 'detail-card';
                     div.innerHTML = `<span style="color:${color}; font-weight:bold;">${icon}</span> ${text}`;
                     list.appendChild(div);
                 });
 
+                // 5. NUEVO: ACTUALIZAR SIMULADOR
+                if (data.simulacion) {
+                    const balance = data.simulacion.balance;
+                    document.getElementById('sim-balance').innerText = "$" + balance.toLocaleString('en-US', {minimumFractionDigits: 2});
+                    
+                    const statusEl = document.getElementById('sim-status');
+                    const detailsEl = document.getElementById('sim-details');
+                    
+                    if (data.simulacion.invertido) {
+                        statusEl.innerText = "INVERTIDO (BTC)";
+                        statusEl.style.background = "rgba(74, 222, 128, 0.3)"; // Verde
+                        // Calcular ganancia/pérdida en tiempo real
+                        const entrada = data.simulacion.precio_entrada;
+                        const actual = data.precio;
+                        const cambio = ((actual - entrada) / entrada) * 100;
+                        detailsEl.innerText = `Entrada: $${entrada.toLocaleString()} (${cambio > 0 ? '+' : ''}${cambio.toFixed(2)}%)`;
+                    } else {
+                        statusEl.innerText = "LÍQUIDO (USDT)";
+                        statusEl.style.background = "rgba(255, 255, 255, 0.2)";
+                        detailsEl.innerText = `Trades cerrados: ${data.simulacion.trades}`;
+                    }
+                }
+
             } catch (error) {
                 console.error(error);
-                document.getElementById('decision').innerText = "RECONECTANDO...";
-                document.getElementById('decision').style.color = "red";
             }
         }
-
-        // Actualizar cada 5 segundos
         setInterval(updateData, 5000);
-        updateData(); // Primera carga
+        updateData();
     </script>
 </body>
 </html>
