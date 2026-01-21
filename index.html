@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Quant Pro</title>
+    <style>
+        body {
+            background-color: #0b1220;
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+        }
+        .header { text-align: center; margin-bottom: 20px; }
+        .price { font-size: 48px; font-weight: bold; margin: 10px 0; }
+        .decision { font-size: 18px; font-weight: 500; color: gray; text-transform: uppercase; }
+        
+        .chart-container {
+            width: 100%;
+            max-width: 400px;
+            height: 220px;
+            background: #111827;
+            border-radius: 12px;
+            padding: 10px;
+            box-sizing: border-box;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        img#chart { width: 100%; height: 100%; object-fit: contain; }
+
+        .metrics { display: flex; width: 100%; max-width: 400px; gap: 20px; }
+        .score-box {
+            position: relative;
+            width: 80px;
+            height: 80px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .score-ring {
+            width: 80px; height: 80px; border-radius: 50%;
+            border: 8px solid #334155;
+            position: absolute;
+        }
+        .score-val { font-size: 24px; font-weight: bold; z-index: 2; }
+        
+        .details { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+        .detail-card {
+            background: #1f2937;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #cbd5e1;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div style="color: gray; font-size: 14px;">BTC/USDT</div>
+        <div class="price" id="price">---</div>
+        <div class="decision" id="decision">Sincronizando...</div>
+    </div>
+
+    <div class="chart-container">
+        <img id="chart" src="" alt="Cargando gráfico..." />
+    </div>
+
+    <div class="metrics">
+        <div class="score-box">
+            <div class="score-ring" id="ring"></div>
+            <div class="score-val" id="score">0</div>
+        </div>
+        <div class="details" id="details-list">
+            </div>
+    </div>
+
+    <script>
+        // TU IP (La misma que usaste en el navegador)
+        const API_URL = "/analisis";
+
+        async function updateData() {
+            try {
+                const response = await fetch(API_URL);
+                const data = await response.json();
+
+                // 1. Actualizar Precio
+                const priceEl = document.getElementById('price');
+                priceEl.innerText = "$" + data.precio.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+                // 2. Actualizar Decisión
+                const decEl = document.getElementById('decision');
+                decEl.innerText = data.decision;
+                
+                // Color según score
+                let color = "gray";
+                if (data.score >= 8) color = "#4ade80"; // Green
+                else if (data.score <= 3) color = "#f87171"; // Red
+                else color = "#fbbf24"; // Orange
+                
+                decEl.style.color = color;
+
+                // 3. Actualizar Gráfico
+                if (data.grafico_img) {
+                    document.getElementById('chart').src = data.grafico_img;
+                }
+
+                // 4. Actualizar Score
+                document.getElementById('score').innerText = data.score;
+                document.getElementById('ring').style.borderColor = color;
+
+                // 5. Lista de Detalles
+                const list = document.getElementById('details-list');
+                list.innerHTML = ''; // Limpiar
+                data.detalles.forEach(det => {
+                    const isGood = det.includes("✅");
+                    const text = det.replace(/✅|❌|⚠️/g, '').trim();
+                    const icon = isGood ? "✓" : "!";
+                    
+                    const div = document.createElement('div');
+                    div.className = 'detail-card';
+                    div.innerHTML = `<span style="color:${color}; font-weight:bold;">${icon}</span> ${text}`;
+                    list.appendChild(div);
+                });
+
+            } catch (error) {
+                console.error(error);
+                document.getElementById('decision').innerText = "RECONECTANDO...";
+                document.getElementById('decision').style.color = "red";
+            }
+        }
+
+        // Actualizar cada 5 segundos
+        setInterval(updateData, 5000);
+        updateData(); // Primera carga
+    </script>
+</body>
+</html>
