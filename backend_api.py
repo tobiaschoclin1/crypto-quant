@@ -7,7 +7,7 @@ import pandas as pd
 import requests
 from scipy.ndimage import gaussian_filter1d
 import matplotlib
-matplotlib.use('Agg') # Vital para servidores sin pantalla
+matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
 import io
 import base64
@@ -15,7 +15,6 @@ import os
 
 app = FastAPI()
 
-# Configuración de CORS (Para seguridad estándar)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,38 +23,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- NUEVO: SERVIR EL HTML ---
 @app.get("/", response_class=HTMLResponse)
 def read_root():
-    # Leemos el archivo index.html y lo enviamos al navegador
     with open("index.html", "r", encoding="utf-8") as f:
         return f.read()
 
+# --- NUEVA LÓGICA DE DATOS ---
 def obtener_datos(limit=1000):
-    # Intentamos con la API principal
+    # Lista de espejos para evitar bloqueos
     urls = [
-        "https://api.binance.com/api/v3/klines",       # Opción A (Global)
-        "https://api.binance.us/api/v3/klines",        # Opción B (US)
-        "https://api1.binance.com/api/v3/klines",      # Opción C (Cluster 1)
-        "https://api2.binance.com/api/v3/klines",      # Opción D (Cluster 2)
-        "https://api3.binance.com/api/v3/klines"       # Opción E (Cluster 3)
+        "https://api.binance.com/api/v3/klines",
+        "https://api.binance.us/api/v3/klines",
+        "https://api1.binance.com/api/v3/klines",
+        "https://api2.binance.com/api/v3/klines",
+        "https://api3.binance.com/api/v3/klines"
     ]
     
     params = {"symbol": "BTCUSDT", "interval": "15m", "limit": limit}
     
     for url in urls:
         try:
-            # Ponemos un timeout corto (2s) para probar rápido
             response = requests.get(url, params=params, timeout=2)
             if response.status_code == 200:
                 data = response.json()
-                precios = np.array([float(x[4]) for x in data])
-                return precios
+                # Extraemos Precio (col 4) y Volumen (col 5)
+                df = pd.DataFrame(data, columns=['time', 'open', 'high', 'low', 'close', 'volume', 'etc', 'etc', 'etc', 'etc', 'etc', 'etc'])
+                df['close'] = df['close'].astype(float)
+                df['volume'] = df['volume'].astype(float)
+                return df
         except:
-            continue # Si falla, probamos la siguiente URL
+            continue
             
-    # Si todas fallan, devolvemos array vacío
-    return np.array([])
+    return pd.DataFrame() # Retorno vacío si falla
+
+def calcular_rsi(series, period=14):
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
 
 def generar_grafico_base64(precios):
     try:
@@ -73,42 +79,77 @@ def generar_grafico_base64(precios):
         buf.seek(0)
         raw_b64 = base64.b64encode(buf.read()).decode('utf-8')
         return f"data:image/png;base64,{raw_b64}"
-    except Exception as e:
+    except:
         return ""
 
 def calcular_todo():
-    precios = obtener_datos()
-    if len(precios) == 0: return {"error": "Sin datos", "precio": 0, "score": 0, "decision": "Error", "detalles": [], "grafico_img": ""}
+    df = obtener_datos()
+    if df.empty: return {"error": "Sin datos", "precio": 0, "score": 0, "decision": "Error", "detalles": [], "grafico_img": ""}
 
+    # Variables principales
+    precios = df['close'].values
+    volumenes = df['volume'].values
     precio_actual = precios[-1]
-    df = pd.DataFrame({"close": precios})
+    
+    # 1. Indicadores Técnicos
     sma_100 = df["close"].rolling(window=100).mean().values
+    sma_vol_20 = df["volume"].rolling(window=20).mean().values # Volumen promedio reciente
+    rsi = calcular_rsi(df["close"]).values
+    
+    # Derivadas (Velocidad y Aceleración)
     suave = gaussian_filter1d(precios, sigma=1)
     vel = np.gradient(suave)
-    acel = np.gradient(vel)
     
+    # --- SISTEMA DE PUNTUACIÓN 2.0 ---
     score = 0
     razones = []
     
-    # Lógica Quant Simplificada
+    # A. Tendencia (Peso: 3)
     sma_val = sma_100[-1] if not np.isnan(sma_100[-1]) else precio_actual
+    if precio_actual > sma_val:
+        score += 3
+        razones.append("Tendencia Alcista ✅")
+    else:
+        razones.append("Tendencia Bajista ❌")
     
-    if precio_actual > sma_val: score += 3; razones.append("Tendencia Alcista ✅")
-    else: razones.append("Tendencia Bajista ❌")
-    
-    if vel[-1] > 0: score += 3; razones.append("Velocidad Positiva ✅")
-    else: razones.append("Velocidad Negativa ❌")
-        
-    if acel[-1] > 0: score += 2; razones.append("Ganando Fuerza ✅")
-    else: razones.append("Perdiendo Fuerza ⚠️")
-    
-    # Ajuste final
-    if score >= 5: score += 2; razones.append("Estructura Fuerte ✅")
-    else: razones.append("Estructura Débil ❌")
+    # B. RSI - El Termómetro (Peso: Variado)
+    rsi_val = rsi[-1] if not np.isnan(rsi[-1]) else 50
+    if 30 <= rsi_val <= 70:
+        score += 2
+        razones.append(f"RSI Saludable ({int(rsi_val)}) ✅")
+    elif rsi_val > 70:
+        score -= 2 # PENALIZACIÓN
+        razones.append(f"RSI Sobrecompra ({int(rsi_val)}) ⚠️")
+    elif rsi_val < 30:
+        score += 3 # Oportunidad de rebote
+        razones.append(f"RSI Sobreventa ({int(rsi_val)}) 🚀")
 
+    # C. Validación por Volumen (Peso: 2)
+    vol_actual = volumenes[-1]
+    vol_promedio = sma_vol_20[-1] if not np.isnan(sma_vol_20[-1]) else vol_actual
+    
+    if vol_actual > vol_promedio:
+        score += 2
+        razones.append("Volumen Alto (Confirmación) ✅")
+    else:
+        razones.append("Volumen Bajo (Débil) ⚠️")
+
+    # D. Velocidad (Momentum)
+    if vel[-1] > 0:
+        score += 1
+        razones.append("Impulso Positivo ✅")
+    else:
+        score -= 1
+        razones.append("Impulso Negativo ❌")
+        
+    # --- DECISIÓN FINAL ---
+    # Normalizamos el score para que esté entre 0 y 10 aprox
+    score = max(0, min(10, score))
+    
     if score >= 8: decision = "COMPRA FUERTE 🚀"
-    elif score >= 5: decision = "OBSERVAR 👀"
-    elif score >= 3: decision = "ESPERAR ✋"
+    elif score >= 6: decision = "COMPRA MODERADA 🟢"
+    elif score >= 4: decision = "OBSERVAR 👀"
+    elif score >= 2: decision = "VENTA 🔴"
     else: decision = "VENTA FUERTE 🩸"
     
     return {
@@ -123,7 +164,6 @@ def calcular_todo():
 def get_analisis():
     return calcular_todo()
 
-# Configuración para que Render sepa cómo correrlo
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
