@@ -24,7 +24,7 @@ app.add_middleware(
 # --- TUS CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
-# ¡¡¡PEGA AQUÍ LA KEY DEL PROYECTO NUEVO!!! La anterior ya no sirve.
+# ⚠️ PEGA TU CLAVE AIza... AQUI ABAJO
 GEMINI_API_KEY = "AIzaSyAp1WURjJ03HhdB8NzkO1Rhre5-FqRtFIA" 
 # ------------------------
 
@@ -49,43 +49,59 @@ def read_root():
             return f.read()
     return "<h1>Error: No se encuentra index.html</h1>"
 
-# --- CHATBOT DIRECTO ---
+# --- CHATBOT CON INTENTOS MÚLTIPLES (SOLUCIÓN AL ERROR 404) ---
 @app.post("/chat")
 async def chat_with_ai(request: Request):
     try:
         body = await request.json()
         user_message = body.get("message", "")
-        
-        # Limpieza de seguridad por si quedaron espacios al copiar
         api_key = GEMINI_API_KEY.strip()
 
         contexto = f"""
-        Eres un Trader Algorítmico Senior. Responde en 1 frase corta, directa y algo sarcástica.
-        DATOS DE MERCADO:
+        Eres un Trader Algorítmico Senior. Responde en 1 frase corta, directa y sarcástica.
+        DATOS:
         - Precio: ${ultimo_estado['precio']:,.2f}
         - Decisión: {ultimo_estado['decision']}
         - Score: {ultimo_estado['score']}/10
         - Razones: {', '.join(ultimo_estado['razones'])}
-        
         Usuario: "{user_message}"
         """
 
-        # Usamos el endpoint v1beta con gemini-1.5-flash que es el estándar actual
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-        
-        payload = {
-            "contents": [{ "parts": [{"text": contexto}] }]
-        }
-        headers = {"Content-Type": "application/json"}
+        # LISTA DE MODELOS A PROBAR (Si uno falla, prueba el siguiente)
+        modelos = [
+            "gemini-1.5-flash",
+            "gemini-1.5-flash-latest",
+            "gemini-pro",         # El clásico confiable
+            "gemini-1.0-pro"
+        ]
 
-        response = requests.post(url, headers=headers, json=payload, timeout=8)
-        
-        if response.status_code == 200:
-            ai_text = response.json()['candidates'][0]['content']['parts'][0]['text']
-            return JSONResponse({"reply": ai_text})
-        else:
-            # Si falla, devolvemos el error exacto para saber qué pasa
-            return JSONResponse({"reply": f"Error Google ({response.status_code}): {response.text}"})
+        headers = {"Content-Type": "application/json"}
+        payload = { "contents": [{ "parts": [{"text": contexto}] }] }
+
+        last_error = ""
+
+        # Bucle de intentos
+        for modelo in modelos:
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={api_key}"
+                # Timeout corto (5s) para probar rápido
+                response = requests.post(url, headers=headers, json=payload, timeout=5)
+                
+                if response.status_code == 200:
+                    # ¡ÉXITO! Devolvemos la respuesta y salimos del bucle
+                    ai_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+                    return JSONResponse({"reply": ai_text})
+                else:
+                    # Si falla, guardamos el error y continuamos al siguiente modelo
+                    last_error = f"Error {modelo}: {response.status_code}"
+                    continue 
+
+            except Exception as e:
+                last_error = str(e)
+                continue
+
+        # Si llegamos aquí, fallaron los 4 modelos
+        return JSONResponse({"reply": f"Fallo total de IA. Último error: {last_error}"})
 
     except Exception as e:
         return JSONResponse({"reply": f"Error interno: {str(e)}"})
