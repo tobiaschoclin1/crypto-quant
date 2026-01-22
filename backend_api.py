@@ -21,12 +21,12 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
-# --- TUS CREDENCIALES ---
+# --- CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
-# ⚠️ PEGA TU CLAVE AIza... AQUI ABAJO
+# Usamos tu clave actual que mostraste en la foto
 GEMINI_API_KEY = "AIzaSyAp1WURjJ03HhdB8NzkO1Rhre5-FqRtFIA" 
-# ------------------------
+# --------------------
 
 portfolio = {
     "usdt": 1000.0, "btc": 0.0, "in_market": False, 
@@ -49,7 +49,7 @@ def read_root():
             return f.read()
     return "<h1>Error: No se encuentra index.html</h1>"
 
-# --- CHATBOT CON INTENTOS MÚLTIPLES (SOLUCIÓN AL ERROR 404) ---
+# --- CHATBOT CON DIAGNÓSTICO DE MODELOS ---
 @app.post("/chat")
 async def chat_with_ai(request: Request):
     try:
@@ -58,7 +58,7 @@ async def chat_with_ai(request: Request):
         api_key = GEMINI_API_KEY.strip()
 
         contexto = f"""
-        Eres un Trader Algorítmico Senior. Responde en 1 frase corta, directa y sarcástica.
+        Eres un Trader Algorítmico Senior. Responde en 1 frase corta.
         DATOS:
         - Precio: ${ultimo_estado['precio']:,.2f}
         - Decisión: {ultimo_estado['decision']}
@@ -67,41 +67,40 @@ async def chat_with_ai(request: Request):
         Usuario: "{user_message}"
         """
 
-        # LISTA DE MODELOS A PROBAR (Si uno falla, prueba el siguiente)
-        modelos = [
-            "gemini-1.5-flash",
-            "gemini-1.5-flash-latest",
-            "gemini-pro",         # El clásico confiable
-            "gemini-1.0-pro"
-        ]
-
+        # 1. Intentamos con la versión ESTABLE (v1) y gemini-1.5-flash
+        url_primaria = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        
         headers = {"Content-Type": "application/json"}
         payload = { "contents": [{ "parts": [{"text": contexto}] }] }
 
-        last_error = ""
-
-        # Bucle de intentos
-        for modelo in modelos:
-            try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={api_key}"
-                # Timeout corto (5s) para probar rápido
-                response = requests.post(url, headers=headers, json=payload, timeout=5)
+        response = requests.post(url_primaria, headers=headers, json=payload, timeout=8)
+        
+        if response.status_code == 200:
+            return JSONResponse({"reply": response.json()['candidates'][0]['content']['parts'][0]['text']})
+        
+        # 2. SI FALLA: MODO DIAGNÓSTICO
+        # Le pedimos a Google que nos liste qué modelos ve esta clave
+        url_lista = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+        resp_lista = requests.get(url_lista, timeout=5)
+        
+        if resp_lista.status_code == 200:
+            data = resp_lista.json()
+            if 'models' in data:
+                nombres = [m['name'].replace('models/', '') for m in data['models']]
+                # Buscamos si hay alguno que sirva
+                for modelo in nombres:
+                    if 'gemini' in modelo and 'generateContent' in str(m.get('supportedGenerationMethods', [])):
+                         # Intentamos usar este modelo encontrado
+                         url_reintento = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={api_key}"
+                         resp_reintento = requests.post(url_reintento, headers=headers, json=payload, timeout=5)
+                         if resp_reintento.status_code == 200:
+                             return JSONResponse({"reply": resp_reintento.json()['candidates'][0]['content']['parts'][0]['text']})
                 
-                if response.status_code == 200:
-                    # ¡ÉXITO! Devolvemos la respuesta y salimos del bucle
-                    ai_text = response.json()['candidates'][0]['content']['parts'][0]['text']
-                    return JSONResponse({"reply": ai_text})
-                else:
-                    # Si falla, guardamos el error y continuamos al siguiente modelo
-                    last_error = f"Error {modelo}: {response.status_code}"
-                    continue 
-
-            except Exception as e:
-                last_error = str(e)
-                continue
-
-        # Si llegamos aquí, fallaron los 4 modelos
-        return JSONResponse({"reply": f"Fallo total de IA. Último error: {last_error}"})
+                return JSONResponse({"reply": f"Error 404. Modelos disponibles para tu clave: {', '.join(nombres[:3])}..."})
+            else:
+                return JSONResponse({"reply": "Error: Tu clave funciona pero no ve ningún modelo. Verifica permisos en Google Cloud."})
+        
+        return JSONResponse({"reply": f"Error total: Tu clave es rechazada (Status {resp_lista.status_code})."})
 
     except Exception as e:
         return JSONResponse({"reply": f"Error interno: {str(e)}"})
