@@ -24,7 +24,7 @@ app.add_middleware(
 # --- CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
-# Usamos tu clave actual que mostraste en la foto
+# Tu clave actual
 GEMINI_API_KEY = "AIzaSyAp1WURjJ03HhdB8NzkO1Rhre5-FqRtFIA" 
 # --------------------
 
@@ -49,7 +49,7 @@ def read_root():
             return f.read()
     return "<h1>Error: No se encuentra index.html</h1>"
 
-# --- CHATBOT CON DIAGNÓSTICO DE MODELOS ---
+# --- CHATBOT CORREGIDO (SIN ERROR 'm') ---
 @app.post("/chat")
 async def chat_with_ai(request: Request):
     try:
@@ -67,43 +67,50 @@ async def chat_with_ai(request: Request):
         Usuario: "{user_message}"
         """
 
-        # 1. Intentamos con la versión ESTABLE (v1) y gemini-1.5-flash
-        url_primaria = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-        
         headers = {"Content-Type": "application/json"}
         payload = { "contents": [{ "parts": [{"text": contexto}] }] }
 
-        response = requests.post(url_primaria, headers=headers, json=payload, timeout=8)
+        # 1. Intentamos con el modelo estándar
+        url_primaria = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
         
-        if response.status_code == 200:
-            return JSONResponse({"reply": response.json()['candidates'][0]['content']['parts'][0]['text']})
-        
-        # 2. SI FALLA: MODO DIAGNÓSTICO
-        # Le pedimos a Google que nos liste qué modelos ve esta clave
+        try:
+            response = requests.post(url_primaria, headers=headers, json=payload, timeout=5)
+            if response.status_code == 200:
+                return JSONResponse({"reply": response.json()['candidates'][0]['content']['parts'][0]['text']})
+        except:
+            pass # Si falla, pasamos al diagnóstico
+
+        # 2. MODO DIAGNÓSTICO Y AUTOCORRECCIÓN
+        # Pedimos a Google la lista de modelos habilitados para ESTA clave
         url_lista = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
         resp_lista = requests.get(url_lista, timeout=5)
         
         if resp_lista.status_code == 200:
             data = resp_lista.json()
             if 'models' in data:
-                nombres = [m['name'].replace('models/', '') for m in data['models']]
-                # Buscamos si hay alguno que sirva
-                for modelo in nombres:
-                    if 'gemini' in modelo and 'generateContent' in str(m.get('supportedGenerationMethods', [])):
-                         # Intentamos usar este modelo encontrado
-                         url_reintento = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={api_key}"
+                # Iteramos correctamente sobre los objetos del modelo
+                for model_obj in data['models']:
+                    nombre = model_obj['name'].replace('models/', '')
+                    metodos = model_obj.get('supportedGenerationMethods', [])
+                    
+                    # Si el modelo sirve para generar texto, lo probamos
+                    if 'generateContent' in metodos:
+                         url_reintento = f"https://generativelanguage.googleapis.com/v1beta/models/{nombre}:generateContent?key={api_key}"
                          resp_reintento = requests.post(url_reintento, headers=headers, json=payload, timeout=5)
+                         
                          if resp_reintento.status_code == 200:
                              return JSONResponse({"reply": resp_reintento.json()['candidates'][0]['content']['parts'][0]['text']})
                 
-                return JSONResponse({"reply": f"Error 404. Modelos disponibles para tu clave: {', '.join(nombres[:3])}..."})
+                # Si llegamos aquí, hay modelos pero ninguno funcionó
+                nombres_disponibles = [m['name'] for m in data['models']]
+                return JSONResponse({"reply": f"Error. Tu clave ve estos modelos pero fallan: {', '.join(nombres_disponibles[:3])}"})
             else:
-                return JSONResponse({"reply": "Error: Tu clave funciona pero no ve ningún modelo. Verifica permisos en Google Cloud."})
+                return JSONResponse({"reply": "Error: Tu clave es válida pero Google dice que no tienes modelos asignados."})
         
-        return JSONResponse({"reply": f"Error total: Tu clave es rechazada (Status {resp_lista.status_code})."})
+        return JSONResponse({"reply": f"Error Fatal: Tu clave fue rechazada por Google (Código {resp_lista.status_code})."})
 
     except Exception as e:
-        return JSONResponse({"reply": f"Error interno: {str(e)}"})
+        return JSONResponse({"reply": f"Error interno del servidor: {str(e)}"})
 
 # --- FUNCIONES MATEMÁTICAS ---
 def obtener_datos(limit=1000):
