@@ -75,7 +75,7 @@ async def chat_with_ai(request: Request):
         Usa emojis. Basa tu respuesta estrictamente en los datos provistos.
         """
         
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-pro')
         response = model.generate_content(contexto)
         
         return JSONResponse({"reply": response.text})
