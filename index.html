@@ -3,69 +3,159 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crypto Quant Pro</title>
+    <title>Crypto Quant Dashboard</title>
     <style>
-        body { background-color: #0b1220; color: white; font-family: sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
-        .header { text-align: center; margin-bottom: 20px; }
-        .price { font-size: 48px; font-weight: bold; margin: 10px 0; }
-        .decision { font-size: 18px; font-weight: 500; color: gray; text-transform: uppercase; }
-        
-        .chart-container { width: 100%; max-width: 400px; height: 220px; background: #111827; border-radius: 12px; padding: 10px; box-sizing: border-box; display: flex; justify-content: center; align-items: center; margin-bottom: 20px; }
+        body {
+            background-color: #0b1220;
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        /* Contenedor Principal (Controla el ancho máximo en PC) */
+        .main-container {
+            width: 100%;
+            max-width: 1100px;
+            display: grid;
+            gap: 30px;
+            /* Por defecto 1 columna (Móvil) */
+            grid-template-columns: 1fr; 
+        }
+
+        /* --- ESTILOS RESPONSIVE PARA PC --- */
+        @media (min-width: 768px) {
+            .main-container {
+                grid-template-columns: 1.5fr 1fr; /* Izquierda más ancha, Derecha análisis */
+                align-items: start;
+            }
+            .chart-box {
+                height: 400px !important; /* Gráfico más alto en PC */
+            }
+        }
+
+        /* HEADER & PRECIO */
+        .header-section { text-align: center; margin-bottom: 10px; }
+        .pair-title { color: #94a3b8; font-size: 14px; letter-spacing: 1px; font-weight: 600; }
+        .price-display { font-size: 56px; font-weight: 800; margin: 5px 0; letter-spacing: -1px; }
+        .decision-badge { 
+            font-size: 20px; font-weight: 700; text-transform: uppercase; 
+            padding: 8px 16px; border-radius: 8px; background: rgba(255,255,255,0.05);
+            display: inline-block; margin-bottom: 5px;
+        }
+        .last-update { font-size: 12px; color: #64748b; margin-top: 5px; }
+
+        /* GRÁFICO */
+        .chart-box {
+            width: 100%;
+            height: 250px; /* Altura móvil */
+            background: #111827;
+            border-radius: 16px;
+            padding: 10px;
+            box-sizing: border-box;
+            border: 1px solid #1f2937;
+            display: flex;
+            align-items: center; justify-content: center;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        }
         img#chart { width: 100%; height: 100%; object-fit: contain; }
 
-        /* NUEVA SECCIÓN: SIMULADOR */
+        /* BILLETERA (Simulador) */
         .wallet-card {
-            width: 100%; max-width: 400px;
-            background: linear-gradient(135deg, #1e3a8a, #1e40af);
-            border-radius: 12px;
-            padding: 15px;
-            box-sizing: border-box;
+            background: linear-gradient(135deg, #2563eb, #1e40af);
+            border-radius: 16px;
+            padding: 20px;
+            color: white;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
             margin-bottom: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
         }
-        .wallet-info h3 { margin: 0; font-size: 12px; color: #bfdbfe; text-transform: uppercase; letter-spacing: 1px; }
-        .wallet-balance { font-size: 24px; font-weight: bold; margin-top: 5px; }
-        .wallet-status { font-size: 12px; padding: 4px 8px; border-radius: 20px; background: rgba(255,255,255,0.2); font-weight: bold; }
+        .wallet-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .wallet-title { font-size: 12px; opacity: 0.8; text-transform: uppercase; font-weight: 700; }
+        .wallet-status { font-size: 11px; font-weight: bold; background: rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 12px; }
+        .wallet-balance { font-size: 32px; font-weight: 700; }
+        .wallet-footer { font-size: 12px; opacity: 0.7; margin-top: 5px; }
 
-        .metrics { display: flex; width: 100%; max-width: 400px; gap: 20px; }
-        .score-box { position: relative; width: 80px; height: 80px; display: flex; justify-content: center; align-items: center; }
-        .score-ring { width: 80px; height: 80px; border-radius: 50%; border: 8px solid #334155; position: absolute; }
-        .score-val { font-size: 24px; font-weight: bold; z-index: 2; }
+        /* SECCIÓN DE ANÁLISIS (GRID INTELIGENTE) */
+        .analysis-grid {
+            display: grid;
+            grid-template-columns: auto 1fr; /* Círculo auto, Detalles resto */
+            gap: 20px;
+            align-items: start;
+        }
         
-        .details { flex: 1; display: flex; flex-direction: column; gap: 8px; }
-        .detail-card { background: #1f2937; padding: 10px; border-radius: 8px; font-size: 12px; color: #cbd5e1; display: flex; align-items: center; gap: 8px; }
+        /* En móvil muy pequeño, apilamos */
+        @media (max-width: 400px) {
+            .analysis-grid { grid-template-columns: 1fr; justify-items: center; }
+        }
+
+        /* SCORE CIRCLE */
+        .score-container {
+            width: 100px; height: 100px;
+            position: relative;
+            display: flex; justify-content: center; align-items: center;
+        }
+        .score-ring {
+            width: 100%; height: 100%; border-radius: 50%;
+            border: 10px solid #334155; position: absolute;
+            transition: border-color 0.5s ease;
+        }
+        .score-number { font-size: 36px; font-weight: 800; z-index: 2; }
+
+        /* LISTA DE DETALLES */
+        .details-list { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+        .detail-item {
+            background: #1f2937;
+            padding: 12px 15px;
+            border-radius: 10px;
+            font-size: 13px;
+            color: #e2e8f0;
+            display: flex; align-items: center; gap: 10px;
+            border-left: 4px solid transparent;
+            transition: all 0.3s ease;
+        }
     </style>
 </head>
 <body>
 
-    <div class="header">
-        <div style="color: gray; font-size: 14px;">BTC/USDT</div>
-        <div class="price" id="price">---</div>
-        <div class="decision" id="decision">Sincronizando...</div>
-    </div>
+    <div class="main-container">
+        
+        <div class="left-panel">
+            <div class="header-section">
+                <div class="pair-title">BTC / USDT (Binance)</div>
+                <div class="price-display" id="price">---</div>
+                <div class="decision-badge" id="decision">---</div>
+                <div class="last-update" id="last-update">Esperando datos...</div>
+            </div>
 
-    <div class="wallet-card">
-        <div class="wallet-info">
-            <h3>Simulador (Paper Trading)</h3>
-            <div class="wallet-balance" id="sim-balance">$1,000.00</div>
-            <div style="font-size: 11px; color: #bfdbfe; margin-top: 4px;" id="sim-details">Trades: 0</div>
+            <div class="chart-box">
+                <img id="chart" src="" alt="Cargando análisis..." />
+            </div>
         </div>
-        <div class="wallet-status" id="sim-status">LIQUIDO (USDT)</div>
-    </div>
 
-    <div class="chart-container">
-        <img id="chart" src="" alt="Cargando gráfico..." />
-    </div>
+        <div class="right-panel">
+            
+            <div class="wallet-card">
+                <div class="wallet-header">
+                    <span class="wallet-title">Simulador IA</span>
+                    <span class="wallet-status" id="sim-status">USDT</span>
+                </div>
+                <div class="wallet-balance" id="sim-balance">$1,000.00</div>
+                <div class="wallet-footer" id="sim-details">Trades cerrados: 0</div>
+            </div>
 
-    <div class="metrics">
-        <div class="score-box">
-            <div class="score-ring" id="ring"></div>
-            <div class="score-val" id="score">0</div>
+            <div class="analysis-grid">
+                <div class="score-container">
+                    <div class="score-ring" id="ring"></div>
+                    <div class="score-number" id="score">0</div>
+                </div>
+
+                <div class="details-list" id="details-list">
+                    </div>
+            </div>
         </div>
-        <div class="details" id="details-list"></div>
+
     </div>
 
     <script>
@@ -76,16 +166,21 @@
                 const response = await fetch(API_URL);
                 const data = await response.json();
 
-                // 1. Precios y Decisión
+                // 1. Datos Principales
                 document.getElementById('price').innerText = "$" + data.precio.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                document.getElementById('last-update').innerText = "Última actualización: " + data.update_time;
+                
                 const decEl = document.getElementById('decision');
                 decEl.innerText = data.decision;
                 
-                let color = "gray";
-                if (data.score >= 8) color = "#4ade80"; 
-                else if (data.score <= 3) color = "#f87171"; 
-                else color = "#fbbf24"; 
+                // Colores Dinámicos
+                let color = "#94a3b8"; // Gray
+                if (data.score >= 8) color = "#4ade80"; // Green
+                else if (data.score <= 3) color = "#ef4444"; // Red
+                else color = "#facc15"; // Yellow
+                
                 decEl.style.color = color;
+                decEl.style.background = color + "15"; // Opacidad baja fondo
 
                 // 2. Gráfico
                 if (data.grafico_img) document.getElementById('chart').src = data.grafico_img;
@@ -93,21 +188,30 @@
                 // 3. Score
                 document.getElementById('score').innerText = data.score;
                 document.getElementById('ring').style.borderColor = color;
+                document.getElementById('score').style.color = color;
 
                 // 4. Detalles
                 const list = document.getElementById('details-list');
                 list.innerHTML = ''; 
                 data.detalles.forEach(det => {
                     const isGood = det.includes("✅");
+                    const isWarn = det.includes("⚠️");
                     const text = det.replace(/✅|❌|⚠️/g, '').trim();
-                    const icon = isGood ? "✓" : "!";
+                    
+                    let icon = "✕";
+                    let itemColor = "#ef4444"; // Red default
+                    
+                    if (isGood) { icon = "✓"; itemColor = "#4ade80"; }
+                    else if (isWarn) { icon = "!"; itemColor = "#facc15"; }
+
                     const div = document.createElement('div');
-                    div.className = 'detail-card';
-                    div.innerHTML = `<span style="color:${color}; font-weight:bold;">${icon}</span> ${text}`;
+                    div.className = 'detail-item';
+                    div.style.borderLeftColor = itemColor;
+                    div.innerHTML = `<span style="color:${itemColor}; font-weight:900; font-size:14px;">${icon}</span> ${text}`;
                     list.appendChild(div);
                 });
 
-                // 5. NUEVO: ACTUALIZAR SIMULADOR
+                // 5. Simulador
                 if (data.simulacion) {
                     const balance = data.simulacion.balance;
                     document.getElementById('sim-balance').innerText = "$" + balance.toLocaleString('en-US', {minimumFractionDigits: 2});
@@ -117,16 +221,21 @@
                     
                     if (data.simulacion.invertido) {
                         statusEl.innerText = "INVERTIDO (BTC)";
-                        statusEl.style.background = "rgba(74, 222, 128, 0.3)"; // Verde
-                        // Calcular ganancia/pérdida en tiempo real
+                        statusEl.style.background = "rgba(74, 222, 128, 0.3)";
+                        statusEl.style.color = "#dcfce7";
+                        
                         const entrada = data.simulacion.precio_entrada;
                         const actual = data.precio;
                         const cambio = ((actual - entrada) / entrada) * 100;
-                        detailsEl.innerText = `Entrada: $${entrada.toLocaleString()} (${cambio > 0 ? '+' : ''}${cambio.toFixed(2)}%)`;
+                        const signo = cambio > 0 ? '+' : '';
+                        detailsEl.innerText = `Entrada: $${entrada.toLocaleString()} (${signo}${cambio.toFixed(2)}%)`;
+                        detailsEl.style.color = cambio >= 0 ? "#4ade80" : "#ef4444";
                     } else {
                         statusEl.innerText = "LÍQUIDO (USDT)";
                         statusEl.style.background = "rgba(255, 255, 255, 0.2)";
+                        statusEl.style.color = "white";
                         detailsEl.innerText = `Trades cerrados: ${data.simulacion.trades}`;
+                        detailsEl.style.color = "rgba(255,255,255,0.7)";
                     }
                 }
 
