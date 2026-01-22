@@ -13,8 +13,7 @@ import io
 import base64
 import os
 from datetime import datetime
-import pytz # <--- NUEVA LIBRERÍA PARA LA HORA
-import google.generativeai as genai
+import pytz # Para la hora de Argentina
 
 app = FastAPI()
 
@@ -22,14 +21,11 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
-# --- CREDENCIALES ---
+# --- TUS CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
 GEMINI_API_KEY = "AIzaSyADQkZ4LuS7T_smMl1kFIVSZ07lU7bp7iU" 
-# --------------------
-
-# Configurar Gemini
-genai.configure(api_key=GEMINI_API_KEY)
+# ------------------------
 
 portfolio = {
     "usdt": 1000.0, "btc": 0.0, "in_market": False, 
@@ -52,34 +48,44 @@ def read_root():
             return f.read()
     return "<h1>Error: No se encuentra index.html</h1>"
 
+# --- CHATBOT DIRECTO (SIN LIBRERÍA GOOGLE) ---
 @app.post("/chat")
 async def chat_with_ai(request: Request):
     try:
         body = await request.json()
         user_message = body.get("message", "")
         
+        # Contexto Técnico
         contexto = f"""
-        Eres un Trader Algorítmico Senior experto en Crypto.
-        Responde al usuario basándote EXCLUSIVAMENTE en estos datos técnicos:
+        Eres un Trader Algorítmico Senior. Responde breve y directo.
+        DATOS DE MERCADO (BTC/USDT):
+        - Precio: ${ultimo_estado['precio']:,.2f}
+        - Decisión Bot: {ultimo_estado['decision']}
+        - Score: {ultimo_estado['score']}/10
+        - Razones: {', '.join(ultimo_estado['razones'])}
         
-        ESTADO DEL MERCADO (BTC/USDT):
-        - Precio Actual: ${ultimo_estado['precio']:,.2f}
-        - Decisión del Bot: {ultimo_estado['decision']}
-        - Score Técnico: {ultimo_estado['score']}/10
-        - Análisis: {', '.join(ultimo_estado['razones'])}
-        
-        Usuario pregunta: "{user_message}"
-        
-        Tu personalidad: Profesional pero directo. Si el score es bajo, advierte del riesgo. Sé conciso.
+        Usuario: "{user_message}"
         """
         
-        # Usamos 1.5-flash que es el modelo más eficiente y moderno para esto
-        model = genai.GenerativeModel('gemini-1.5-flash') 
-        response = model.generate_content(contexto)
+        # LLAMADA REST DIRECTA (Esto evita el error 404 de la librería)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "contents": [{
+                "parts": [{"text": contexto}]
+            }]
+        }
         
-        return JSONResponse({"reply": response.text})
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        
+        if response.status_code == 200:
+            ai_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+            return JSONResponse({"reply": ai_text})
+        else:
+            return JSONResponse({"reply": f"Error Google: {response.text}"})
+
     except Exception as e:
-        return JSONResponse({"reply": f"Error de conexión IA: {str(e)}"})
+        return JSONResponse({"reply": f"Error de conexión: {str(e)}"})
 
 # --- FUNCIONES MATEMÁTICAS ---
 def obtener_datos(limit=1000):
@@ -218,8 +224,11 @@ def calcular_todo():
         total_balance = portfolio["btc"] * precio_actual
 
     # --- HORA BUENOS AIRES ---
-    tz_ba = pytz.timezone('America/Argentina/Buenos_Aires')
-    hora_actual = datetime.now(tz_ba).strftime("%H:%M:%S")
+    try:
+        tz_ba = pytz.timezone('America/Argentina/Buenos_Aires')
+        hora_actual = datetime.now(tz_ba).strftime("%H:%M:%S")
+    except:
+        hora_actual = datetime.now().strftime("%H:%M:%S") # Fallback
 
     return {
         "precio": precio_actual,
@@ -227,7 +236,7 @@ def calcular_todo():
         "decision": decision,
         "detalles": razones,
         "grafico_img": generar_grafico_base64(precios, ema_200),
-        "update_time": hora_actual, # Usamos la hora de BA
+        "update_time": hora_actual,
         "simulacion": {
             "balance": total_balance,
             "invertido": portfolio["in_market"],
