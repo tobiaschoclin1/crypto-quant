@@ -1,5 +1,5 @@
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import numpy as np
@@ -13,6 +13,7 @@ import io
 import base64
 import os
 from datetime import datetime
+import google.generativeai as genai # <--- NUEVA LIBRERÍA
 
 app = FastAPI()
 
@@ -20,17 +21,22 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
-# --- TUS CREDENCIALES ---
+# --- CREDENCIALES (PEGA TUS DATOS AQUÍ) ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
-# ------------------------
+GEMINI_API_KEY = "AIzaSyADQkZ4LuS7T_smMl1kFIVSZ07lU7bp7iU" 
+# -------------------------------------------
+
+# Configurar Gemini
+genai.configure(api_key=GEMINI_API_KEY)
 
 portfolio = {
     "usdt": 1000.0, "btc": 0.0, "in_market": False, 
     "entry_price": 0.0, "last_result": 0.0, "trades_count": 0
 }
-
 ultima_alerta = ""
+# Guardamos el último análisis para dárselo a Gemini
+ultimo_estado = {"decision": "NEUTRAL", "precio": 0, "score": 0, "razones": []}
 
 def enviar_telegram(mensaje):
     try:
@@ -46,6 +52,37 @@ def read_root():
             return f.read()
     return "<h1>Error: No se encuentra index.html</h1>"
 
+# --- NUEVO: ENDPOINT DE CHAT ---
+@app.post("/chat")
+async def chat_with_ai(request: Request):
+    try:
+        body = await request.json()
+        user_message = body.get("message", "")
+        
+        # Construimos el contexto con los datos reales del bot
+        contexto = f"""
+        Actúa como un Asesor de Trading Cuantitativo Senior.
+        DATOS EN TIEMPO REAL DEL MERCADO (BTC/USDT):
+        - Precio: ${ultimo_estado['precio']:,.2f}
+        - Decisión del Algoritmo: {ultimo_estado['decision']}
+        - Score Técnico: {ultimo_estado['score']}/10
+        - Indicadores Clave: {', '.join(ultimo_estado['razones'])}
+        - Portafolio Simulado: {'INVERTIDO' if portfolio['in_market'] else 'LÍQUIDO (USDT)'}
+        
+        El usuario pregunta: "{user_message}"
+        
+        Responde corto, directo y sarcástico si el usuario pregunta algo obvio. 
+        Usa emojis. Basa tu respuesta estrictamente en los datos provistos.
+        """
+        
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(contexto)
+        
+        return JSONResponse({"reply": response.text})
+    except Exception as e:
+        return JSONResponse({"reply": f"Error cerebral: {str(e)}"})
+
+# --- FUNCIONES MATEMÁTICAS ---
 def obtener_datos(limit=1000):
     urls = [
         "https://api.binance.com/api/v3/klines",
@@ -76,22 +113,15 @@ def calcular_rsi(series, period=14):
 def generar_grafico_base64(precios, ema_200):
     try:
         plt.style.use('dark_background')
-        fig, ax = plt.subplots(figsize=(10, 5), dpi=100) # Más ancho para PC
-        
+        fig, ax = plt.subplots(figsize=(10, 5), dpi=100)
         data = precios[-100:] 
         ema_data = ema_200[-100:]
         x = range(len(data))
-        
-        # Plot con etiquetas para la leyenda
         ax.plot(x, data, color='#22d3ee', linewidth=2, label='Precio BTC')
-        ax.plot(x, ema_data, color='#fbbf24', linewidth=1.5, linestyle='--', label='EMA 200 (Tendencia)')
-        
+        ax.plot(x, ema_data, color='#fbbf24', linewidth=1.5, linestyle='--', label='EMA 200')
         ax.fill_between(x, data, data.min(), color='#22d3ee', alpha=0.1)
         ax.axis('off'); ax.grid(False)
-        
-        # --- LEYENDA (NUEVO) ---
         ax.legend(loc='upper left', frameon=True, facecolor='#111827', edgecolor='none', labelcolor='white', fontsize=9)
-        
         buf = io.BytesIO()
         fig.savefig(buf, format='png', bbox_inches='tight', transparent=True, pad_inches=0)
         plt.close(fig)
@@ -124,9 +154,9 @@ def ejecutar_simulacion(precio_actual, score, ema_200_val):
         enviar_telegram(f"🟠 *SIMULACIÓN: VENTA*\nPrecio: ${precio_actual:,.2f}\nResultado: {icono} ${ganancia_real:,.2f}")
 
 def calcular_todo():
-    global ultima_alerta
+    global ultima_alerta, ultimo_estado
     df = obtener_datos(limit=1000)
-    if df.empty: return {"error": "Sin datos", "precio": 0, "score": 0, "decision": "Error"}
+    if df.empty: return {"error": "Sin datos"}
 
     precios = df['c'].values
     volumenes = df['v'].values
@@ -144,24 +174,18 @@ def calcular_todo():
     score = 0
     razones = []
 
-    # Lógica de Puntuación (Igual que antes)
-    sma_val = sma_100[-1] if not np.isnan(sma_100[-1]) else precio_actual
-    if precio_actual > sma_val: score += 2; razones.append("Tendencia Corta Alcista ✅")
+    if precio_actual > sma_100[-1]: score += 2; razones.append("Tendencia Corta Alcista ✅")
     else: razones.append("Tendencia Corta Bajista ❌")
 
-    if precio_actual > ema_200_actual: 
-        score += 2; razones.append("Tendencia Macro Alcista (EMA200) ✅")
-    else: 
-        score -= 2; razones.append("Tendencia Macro Bajista (EMA200) ⚠️")
+    if precio_actual > ema_200_actual: score += 2; razones.append("Tendencia Macro Alcista ✅")
+    else: score -= 2; razones.append("Tendencia Macro Bajista ⚠️")
 
-    rsi_val = rsi[-1] if not np.isnan(rsi[-1]) else 50
+    rsi_val = rsi[-1]
     if 30 <= rsi_val <= 70: score += 1; razones.append(f"RSI Neutro ({int(rsi_val)})")
     elif rsi_val > 70: score -= 2; razones.append(f"RSI Sobrecompra ({int(rsi_val)}) ⚠️")
     elif rsi_val < 30: score += 3; razones.append(f"RSI Sobreventa ({int(rsi_val)}) 🚀")
 
-    vol_act = volumenes[-1]
-    vol_avg = sma_vol[-1] if not np.isnan(sma_vol[-1]) else vol_act
-    if vol_act > vol_avg: score += 2; razones.append("Volumen Alto ✅")
+    if volumenes[-1] > sma_vol[-1]: score += 2; razones.append("Volumen Alto ✅")
     else: razones.append("Volumen Bajo ⚠️")
 
     if vel[-1] > 0: score += 1; razones.append("Impulso Positivo ✅")
@@ -176,6 +200,14 @@ def calcular_todo():
     else: decision = "VENTA FUERTE 🩸"
 
     ejecutar_simulacion(precio_actual, score, ema_200_actual)
+
+    # Actualizar estado global para Gemini
+    ultimo_estado = {
+        "decision": decision,
+        "precio": precio_actual,
+        "score": score,
+        "razones": razones
+    }
 
     clave_alerta = f"{decision}"
     if clave_alerta != ultima_alerta:
@@ -193,7 +225,7 @@ def calcular_todo():
         "decision": decision,
         "detalles": razones,
         "grafico_img": generar_grafico_base64(precios, ema_200),
-        "update_time": datetime.now().strftime("%H:%M:%S"), # NUEVO: HORA
+        "update_time": datetime.now().strftime("%H:%M:%S"),
         "simulacion": {
             "balance": total_balance,
             "invertido": portfolio["in_market"],
