@@ -13,7 +13,8 @@ import io
 import base64
 import os
 from datetime import datetime
-import google.generativeai as genai # <--- NUEVA LIBRERÍA
+import pytz # <--- NUEVA LIBRERÍA PARA LA HORA
+import google.generativeai as genai
 
 app = FastAPI()
 
@@ -21,11 +22,11 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
-# --- CREDENCIALES (PEGA TUS DATOS AQUÍ) ---
+# --- CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
 GEMINI_API_KEY = "AIzaSyADQkZ4LuS7T_smMl1kFIVSZ07lU7bp7iU" 
-# -------------------------------------------
+# --------------------
 
 # Configurar Gemini
 genai.configure(api_key=GEMINI_API_KEY)
@@ -35,7 +36,6 @@ portfolio = {
     "entry_price": 0.0, "last_result": 0.0, "trades_count": 0
 }
 ultima_alerta = ""
-# Guardamos el último análisis para dárselo a Gemini
 ultimo_estado = {"decision": "NEUTRAL", "precio": 0, "score": 0, "razones": []}
 
 def enviar_telegram(mensaje):
@@ -52,35 +52,34 @@ def read_root():
             return f.read()
     return "<h1>Error: No se encuentra index.html</h1>"
 
-# --- NUEVO: ENDPOINT DE CHAT ---
 @app.post("/chat")
 async def chat_with_ai(request: Request):
     try:
         body = await request.json()
         user_message = body.get("message", "")
         
-        # Construimos el contexto con los datos reales del bot
         contexto = f"""
-        Actúa como un Asesor de Trading Cuantitativo Senior.
-        DATOS EN TIEMPO REAL DEL MERCADO (BTC/USDT):
-        - Precio: ${ultimo_estado['precio']:,.2f}
-        - Decisión del Algoritmo: {ultimo_estado['decision']}
+        Eres un Trader Algorítmico Senior experto en Crypto.
+        Responde al usuario basándote EXCLUSIVAMENTE en estos datos técnicos:
+        
+        ESTADO DEL MERCADO (BTC/USDT):
+        - Precio Actual: ${ultimo_estado['precio']:,.2f}
+        - Decisión del Bot: {ultimo_estado['decision']}
         - Score Técnico: {ultimo_estado['score']}/10
-        - Indicadores Clave: {', '.join(ultimo_estado['razones'])}
-        - Portafolio Simulado: {'INVERTIDO' if portfolio['in_market'] else 'LÍQUIDO (USDT)'}
+        - Análisis: {', '.join(ultimo_estado['razones'])}
         
-        El usuario pregunta: "{user_message}"
+        Usuario pregunta: "{user_message}"
         
-        Responde corto, directo y sarcástico si el usuario pregunta algo obvio. 
-        Usa emojis. Basa tu respuesta estrictamente en los datos provistos.
+        Tu personalidad: Profesional pero directo. Si el score es bajo, advierte del riesgo. Sé conciso.
         """
         
-        model = genai.GenerativeModel('gemini-pro')
+        # Usamos 1.5-flash que es el modelo más eficiente y moderno para esto
+        model = genai.GenerativeModel('gemini-1.5-flash') 
         response = model.generate_content(contexto)
         
         return JSONResponse({"reply": response.text})
     except Exception as e:
-        return JSONResponse({"reply": f"Error cerebral: {str(e)}"})
+        return JSONResponse({"reply": f"Error de conexión IA: {str(e)}"})
 
 # --- FUNCIONES MATEMÁTICAS ---
 def obtener_datos(limit=1000):
@@ -156,7 +155,7 @@ def ejecutar_simulacion(precio_actual, score, ema_200_val):
 def calcular_todo():
     global ultima_alerta, ultimo_estado
     df = obtener_datos(limit=1000)
-    if df.empty: return {"error": "Sin datos"}
+    if df.empty: return {"error": "Sin datos", "precio": 0, "score": 0, "decision": "Error"}
 
     precios = df['c'].values
     volumenes = df['v'].values
@@ -201,7 +200,6 @@ def calcular_todo():
 
     ejecutar_simulacion(precio_actual, score, ema_200_actual)
 
-    # Actualizar estado global para Gemini
     ultimo_estado = {
         "decision": decision,
         "precio": precio_actual,
@@ -219,13 +217,17 @@ def calcular_todo():
     if portfolio["in_market"]:
         total_balance = portfolio["btc"] * precio_actual
 
+    # --- HORA BUENOS AIRES ---
+    tz_ba = pytz.timezone('America/Argentina/Buenos_Aires')
+    hora_actual = datetime.now(tz_ba).strftime("%H:%M:%S")
+
     return {
         "precio": precio_actual,
         "score": score,
         "decision": decision,
         "detalles": razones,
         "grafico_img": generar_grafico_base64(precios, ema_200),
-        "update_time": datetime.now().strftime("%H:%M:%S"),
+        "update_time": hora_actual, # Usamos la hora de BA
         "simulacion": {
             "balance": total_balance,
             "invertido": portfolio["in_market"],

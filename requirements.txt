@@ -5,4 +5,5 @@ numpy
 pandas
 scipy
 matplotlib
-google-generativeai
+google-generativeai>=0.7.2
+pytz
