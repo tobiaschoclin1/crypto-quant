@@ -13,7 +13,7 @@ import io
 import base64
 import os
 from datetime import datetime
-import pytz # Para la hora de Argentina
+import pytz 
 
 app = FastAPI()
 
@@ -48,7 +48,7 @@ def read_root():
             return f.read()
     return "<h1>Error: No se encuentra index.html</h1>"
 
-# --- CHATBOT DIRECTO (SIN LIBRERÍA GOOGLE) ---
+# --- CHATBOT CON FALLBACK AUTOMÁTICO ---
 @app.post("/chat")
 async def chat_with_ai(request: Request):
     try:
@@ -57,7 +57,7 @@ async def chat_with_ai(request: Request):
         
         # Contexto Técnico
         contexto = f"""
-        Eres un Trader Algorítmico Senior. Responde breve y directo.
+        Eres un Trader Algorítmico Senior. Responde breve y directo (máx 20 palabras).
         DATOS DE MERCADO (BTC/USDT):
         - Precio: ${ultimo_estado['precio']:,.2f}
         - Decisión Bot: {ultimo_estado['decision']}
@@ -66,26 +66,46 @@ async def chat_with_ai(request: Request):
         
         Usuario: "{user_message}"
         """
-        
-        # LLAMADA REST DIRECTA (Esto evita el error 404 de la librería)
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-        headers = {"Content-Type": "application/json"}
+
+        # LISTA DE MODELOS PARA PROBAR (Si uno falla, prueba el siguiente)
+        modelos_a_probar = [
+            "gemini-1.5-flash",
+            "gemini-1.5-flash-latest",
+            "gemini-1.5-flash-001",
+            "gemini-pro",
+            "gemini-1.0-pro"
+        ]
+
         payload = {
-            "contents": [{
-                "parts": [{"text": contexto}]
-            }]
+            "contents": [{ "parts": [{"text": contexto}] }]
         }
-        
-        response = requests.post(url, headers=headers, json=payload, timeout=10)
-        
-        if response.status_code == 200:
-            ai_text = response.json()['candidates'][0]['content']['parts'][0]['text']
-            return JSONResponse({"reply": ai_text})
-        else:
-            return JSONResponse({"reply": f"Error Google: {response.text}"})
+        headers = {"Content-Type": "application/json"}
+
+        # Bucle de intentos
+        for modelo in modelos_a_probar:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={GEMINI_API_KEY}"
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=8)
+                
+                if response.status_code == 200:
+                    # ¡Éxito!
+                    ai_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+                    return JSONResponse({"reply": ai_text})
+                elif response.status_code == 404:
+                    # Modelo no encontrado, probamos el siguiente...
+                    continue 
+                else:
+                    # Error distinto a 404 (ej: 403 permisos, 500 servidor), devolvemos el error real
+                    return JSONResponse({"reply": f"Error Google ({modelo}): {response.status_code}"})
+            
+            except Exception:
+                continue # Si falla la conexión, prueba el siguiente
+
+        # Si llegamos aquí, fallaron todos
+        return JSONResponse({"reply": "Error: Ningún modelo de IA disponible para tu API Key."})
 
     except Exception as e:
-        return JSONResponse({"reply": f"Error de conexión: {str(e)}"})
+        return JSONResponse({"reply": f"Error interno: {str(e)}"})
 
 # --- FUNCIONES MATEMÁTICAS ---
 def obtener_datos(limit=1000):
@@ -223,12 +243,11 @@ def calcular_todo():
     if portfolio["in_market"]:
         total_balance = portfolio["btc"] * precio_actual
 
-    # --- HORA BUENOS AIRES ---
     try:
         tz_ba = pytz.timezone('America/Argentina/Buenos_Aires')
         hora_actual = datetime.now(tz_ba).strftime("%H:%M:%S")
     except:
-        hora_actual = datetime.now().strftime("%H:%M:%S") # Fallback
+        hora_actual = datetime.now().strftime("%H:%M:%S")
 
     return {
         "precio": precio_actual,
