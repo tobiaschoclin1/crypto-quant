@@ -20,21 +20,15 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
-# --- TUS CREDENCIALES TELEGRAM ---
+# --- TUS CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
-# ---------------------------------
+# ------------------------
 
-# --- BILLETERA DE PAPER TRADING (SIMULADOR) ---
-# OJO: En Render gratuito, esta memoria se reinicia si el servidor se apaga.
-# Para pruebas de 24-48hs funciona bien con UptimeRobot.
+# Billetera (Reiniciamos a 1000 para probar la nueva estrategia)
 portfolio = {
-    "usdt": 1000.0,      # Capital inicial ficticio
-    "btc": 0.0,          # Cantidad de BTC
-    "in_market": False,  # ¿Estamos comprados?
-    "entry_price": 0.0,  # Precio al que compramos
-    "last_result": 0.0,   # Última ganancia/pérdida
-    "trades_count": 0    # Cantidad de operaciones
+    "usdt": 1000.0, "btc": 0.0, "in_market": False, 
+    "entry_price": 0.0, "last_result": 0.0, "trades_count": 0
 }
 
 ultima_alerta = ""
@@ -80,15 +74,26 @@ def calcular_rsi(series, period=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-def generar_grafico_base64(precios):
+def generar_grafico_base64(precios, ema_200):
     try:
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(8, 3), dpi=100)
-        data = precios[-50:]
+        
+        # Datos recientes
+        data = precios[-100:] 
+        ema_data = ema_200[-100:]
         x = range(len(data))
-        ax.plot(x, data, color='#22d3ee', linewidth=2.5)
+        
+        # Precio
+        ax.plot(x, data, color='#22d3ee', linewidth=2, label='Precio')
+        
+        # EMA 200 (La línea de la verdad)
+        ax.plot(x, ema_data, color='#fbbf24', linewidth=1.5, linestyle='--', label='EMA 200 (Tendencia)')
+        
         ax.fill_between(x, data, data.min(), color='#22d3ee', alpha=0.1)
         ax.axis('off'); ax.grid(False)
+        # ax.legend(loc='upper left', fontsize='small', frameon=False) # Opcional
+        
         buf = io.BytesIO()
         fig.savefig(buf, format='png', bbox_inches='tight', transparent=True, pad_inches=0)
         plt.close(fig)
@@ -96,24 +101,28 @@ def generar_grafico_base64(precios):
         return f"data:image/png;base64,{base64.b64encode(buf.read()).decode('utf-8')}"
     except: return ""
 
-def ejecutar_simulacion(precio_actual, score, razon_principal):
+def ejecutar_simulacion(precio_actual, score, ema_200_val):
     global portfolio
     
-    # REGLA DE COMPRA: Score >= 8 y tenemos USDT
+    # FILTRO DE ORO: ¿Estamos sobre la EMA 200?
+    tendencia_alcista_macro = precio_actual > ema_200_val
+    
+    # REGLA DE COMPRA: Score >= 8 Y Tendencia Macro Alcista
     if not portfolio["in_market"] and score >= 8:
-        portfolio["btc"] = portfolio["usdt"] / precio_actual
-        portfolio["entry_price"] = precio_actual
-        portfolio["usdt"] = 0
-        portfolio["in_market"] = True
-        enviar_telegram(f"🔵 *SIMULACIÓN: COMPRA*\nEntramos en ${precio_actual:,.2f}\nCapital: $1,000 USDT")
-        
-    # REGLA DE VENTA: Score <= 4 y tenemos BTC
+        if tendencia_alcista_macro:
+            portfolio["btc"] = portfolio["usdt"] / precio_actual
+            portfolio["entry_price"] = precio_actual
+            portfolio["usdt"] = 0
+            portfolio["in_market"] = True
+            enviar_telegram(f"🔵 *SIMULACIÓN: COMPRA*\nPrecio: ${precio_actual:,.2f}\nFiltro Tendencia: APROBADO ✅")
+        else:
+            # Si el score es bueno pero la tendencia mala, NO compramos (te salva de pérdidas)
+            # Solo logueamos en consola o ignoramos
+            print(f"Oportunidad rechazada por Tendencia Bajista (Precio < EMA200)")
+
+    # REGLA DE VENTA: Score <= 4 (O Stop Loss de emergencia si implementáramos uno)
     elif portfolio["in_market"] and score <= 4:
-        # Vendemos todo
         valor_venta = portfolio["btc"] * precio_actual
-        profit_usdt = valor_venta - 1000 # Asumiendo base 1000 para cálculo rápido de este trade (simplificado)
-        # Ajuste real del portfolio
-        # Recuperamos el valor base anterior:
         costo_original = portfolio["btc"] * portfolio["entry_price"]
         ganancia_real = valor_venta - costo_original
         
@@ -124,18 +133,23 @@ def ejecutar_simulacion(precio_actual, score, razon_principal):
         portfolio["trades_count"] += 1
         
         icono = "✅" if ganancia_real > 0 else "❌"
-        enviar_telegram(f"🟠 *SIMULACIÓN: VENTA*\nSalimos en ${precio_actual:,.2f}\nResultado: {icono} ${ganancia_real:,.2f}")
+        enviar_telegram(f"🟠 *SIMULACIÓN: VENTA*\nPrecio: ${precio_actual:,.2f}\nResultado: {icono} ${ganancia_real:,.2f}")
 
 def calcular_todo():
     global ultima_alerta
-    df = obtener_datos()
+    df = obtener_datos(limit=1000) # Necesitamos muchos datos para la EMA 200
     if df.empty: return {"error": "Sin datos", "precio": 0, "score": 0, "decision": "Error"}
 
     precios = df['c'].values
     volumenes = df['v'].values
     precio_actual = precios[-1]
     
-    # Indicadores
+    # --- NUEVO INDICADOR: EMA 200 ---
+    # Usamos pandas ewm para calcular la media móvil exponencial
+    ema_200 = df['c'].ewm(span=200, adjust=False).mean().values
+    ema_200_actual = ema_200[-1]
+    
+    # Otros indicadores
     sma_100 = df["c"].rolling(window=100).mean().values
     sma_vol = df["v"].rolling(window=20).mean().values
     rsi = calcular_rsi(df["c"]).values
@@ -145,24 +159,32 @@ def calcular_todo():
     score = 0
     razones = []
 
-    # 1. Tendencia
+    # 1. Tendencia Corta (SMA 100)
     sma_val = sma_100[-1] if not np.isnan(sma_100[-1]) else precio_actual
-    if precio_actual > sma_val: score += 3; razones.append("Tendencia Alcista ✅")
-    else: razones.append("Tendencia Bajista ❌")
+    if precio_actual > sma_val: score += 2; razones.append("Tendencia Corta Alcista ✅") # Bajamos peso a 2
+    else: razones.append("Tendencia Corta Bajista ❌")
 
-    # 2. RSI
+    # 2. Tendencia Larga (EMA 200) - ¡NUEVO!
+    if precio_actual > ema_200_actual: 
+        score += 2
+        razones.append("Tendencia Macro Alcista (EMA200) ✅")
+    else: 
+        score -= 2 # Penalizamos fuerte si está debajo de la EMA 200
+        razones.append("Tendencia Macro Bajista (EMA200) ⚠️")
+
+    # 3. RSI
     rsi_val = rsi[-1] if not np.isnan(rsi[-1]) else 50
-    if 30 <= rsi_val <= 70: score += 2; razones.append(f"RSI Neutro ({int(rsi_val)}) ✅")
+    if 30 <= rsi_val <= 70: score += 1; razones.append(f"RSI Neutro ({int(rsi_val)})")
     elif rsi_val > 70: score -= 2; razones.append(f"RSI Sobrecompra ({int(rsi_val)}) ⚠️")
     elif rsi_val < 30: score += 3; razones.append(f"RSI Sobreventa ({int(rsi_val)}) 🚀")
 
-    # 3. Volumen
+    # 4. Volumen
     vol_act = volumenes[-1]
     vol_avg = sma_vol[-1] if not np.isnan(sma_vol[-1]) else vol_act
     if vol_act > vol_avg: score += 2; razones.append("Volumen Alto ✅")
     else: razones.append("Volumen Bajo ⚠️")
 
-    # 4. Momentum
+    # 5. Momentum
     if vel[-1] > 0: score += 1; razones.append("Impulso Positivo ✅")
     else: score -= 1; razones.append("Impulso Negativo ❌")
 
@@ -174,20 +196,20 @@ def calcular_todo():
     elif score >= 2: decision = "VENTA 🔴"
     else: decision = "VENTA FUERTE 🩸"
 
-    # --- EJECUTAR SIMULADOR ---
-    ejecutar_simulacion(precio_actual, score, razones[0])
+    # --- SIMULADOR CON FILTRO ---
+    ejecutar_simulacion(precio_actual, score, ema_200_actual)
 
-    # --- ALERTAS CLÁSICAS ---
-    clave_alerta = f"{decision}-{int(precio_actual/100)}"
+    # --- ALERTAS TELEGRAM (ANTI-SPAM MEJORADO) ---
+    # Solo avisamos si el score cambia drásticamente o la decisión cambia
+    clave_alerta = f"{decision}" # Quitamos el precio de la clave para reducir spam por $1 de diferencia
+    
     if clave_alerta != ultima_alerta:
-        if score >= 8:
-            enviar_telegram(f"🚀 *ALERTA: OPORTUNIDAD*\nPrecio: ${precio_actual:,.2f}\nScore: {score}/10")
-            ultima_alerta = clave_alerta
-        elif score <= 2:
-            enviar_telegram(f"🩸 *ALERTA: PELIGRO*\nPrecio: ${precio_actual:,.2f}\nScore: {score}/10")
+        # Solo avisamos cambios importantes
+        if score >= 8 or score <= 3:
+            enviar_telegram(f"📊 *ACTUALIZACIÓN*\nDecisión: {decision}\nPrecio: ${precio_actual:,.2f}\nScore: {score}/10\nTrend Macro: {'Alcista' if precio_actual > ema_200_actual else 'BAJISTA ⚠️'}")
             ultima_alerta = clave_alerta
 
-    # Calcular valor total del portfolio para enviarlo al frontend
+    # Datos para Frontend
     total_balance = portfolio["usdt"]
     if portfolio["in_market"]:
         total_balance = portfolio["btc"] * precio_actual
@@ -197,8 +219,7 @@ def calcular_todo():
         "score": score,
         "decision": decision,
         "detalles": razones,
-        "grafico_img": generar_grafico_base64(precios),
-        # Datos del Simulador para el Frontend
+        "grafico_img": generar_grafico_base64(precios, ema_200),
         "simulacion": {
             "balance": total_balance,
             "invertido": portfolio["in_market"],
