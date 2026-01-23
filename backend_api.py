@@ -24,8 +24,8 @@ app.add_middleware(
 # --- CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
-# Tu clave nueva
-GEMINI_API_KEY = "AIzaSyBefrRTQIgNxgu0WU0vII2aAgk4EPxwvho" 
+# Tu clave nueva (asegúrate de que sea la correcta)
+GEMINI_API_KEY = "PEGA_TU_CLAVE_AQUI" 
 # --------------------
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
@@ -102,7 +102,8 @@ async def chat_with_ai(request: Request):
         # 1. Autodescubrimiento (si hace falta)
         if not valid_model_name:
             try:
-                resp_list = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}", timeout=5)
+                # Subimos timeout de búsqueda a 10s
+                resp_list = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}", timeout=10)
                 if resp_list.status_code == 200:
                     for model in resp_list.json().get('models', []):
                         if 'generateContent' in model.get('supportedGenerationMethods', []):
@@ -111,9 +112,11 @@ async def chat_with_ai(request: Request):
             except: pass
         if not valid_model_name: valid_model_name = "gemini-1.5-flash"
 
-        # 2. Chat
+        # 2. Chat (AQUÍ ESTÁ EL CAMBIO IMPORTANTE)
         url_chat = f"https://generativelanguage.googleapis.com/v1beta/models/{valid_model_name}:generateContent?key={api_key}"
-        response = requests.post(url_chat, headers=headers, json=payload, timeout=8)
+        
+        # CAMBIO: Subimos el timeout a 30 segundos para evitar errores de lectura
+        response = requests.post(url_chat, headers=headers, json=payload, timeout=30)
         
         if response.status_code == 200:
             return JSONResponse({"reply": response.json()['candidates'][0]['content']['parts'][0]['text']})
@@ -136,13 +139,13 @@ def obtener_datos(symbol):
     params = {"symbol": symbol, "interval": "15m", "limit": 200}
     for url in urls:
         try:
-            r = requests.get(url, params=params, timeout=3)
+            r = requests.get(url, params=params, timeout=5) # Subimos un poco este también
             if r.status_code == 200:
                 df = pd.DataFrame(r.json(), columns=['t', 'o', 'h', 'l', 'c', 'v', 'x', 'x', 'x', 'x', 'x', 'x'])
                 df['c'] = df['c'].astype(float)
                 df['v'] = df['v'].astype(float)
-                df['l'] = df['l'].astype(float) # Necesitamos Low para soporte
-                df['h'] = df['h'].astype(float) # Necesitamos High para resistencia
+                df['l'] = df['l'].astype(float) 
+                df['h'] = df['h'].astype(float) 
                 return df
         except: continue
     return pd.DataFrame()
@@ -237,8 +240,8 @@ def ejecutar_estrategia(symbol, df):
         "score": score,
         "decision": decision,
         "detalles": razones,
-        "soporte": soporte_local,      # DATO NUEVO
-        "resistencia": resistencia_local, # DATO NUEVO
+        "soporte": soporte_local,
+        "resistencia": resistencia_local,
         "grafico": generar_grafico(df, symbol),
         "portfolio": pf
     }
