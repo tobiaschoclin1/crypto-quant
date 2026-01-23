@@ -8,43 +8,35 @@
         body { background-color: #0b1220; color: white; font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
         .main-container { width: 100%; max-width: 1000px; display: grid; gap: 20px; grid-template-columns: 1fr; }
         @media (min-width: 768px) { .main-container { grid-template-columns: 2fr 1fr; } }
-
-        .nav-bar { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 20px; width: 100%; max-width: 1000px; }
-        .nav-btn { background: #1f2937; border: 1px solid #374151; color: #9ca3af; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; white-space: nowrap; transition: all 0.2s; }
-        .nav-btn.active { background: #2563eb; color: white; border-color: #2563eb; box-shadow: 0 0 15px rgba(37, 99, 235, 0.4); }
-
-        .card { background: #111827; border: 1px solid #1f2937; border-radius: 16px; padding: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); }
         
+        /* Nav */
+        .nav-bar { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 20px; width: 100%; max-width: 1000px; }
+        .nav-btn { background: #1f2937; border: 1px solid #374151; color: #9ca3af; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; white-space: nowrap; }
+        .nav-btn.active { background: #2563eb; color: white; border-color: #2563eb; }
+
+        /* Cards */
+        .card { background: #111827; border: 1px solid #1f2937; border-radius: 16px; padding: 20px; }
         .header-info { text-align: center; margin-bottom: 20px; }
-        .price { font-size: 48px; font-weight: 800; margin: 5px 0; letter-spacing: -1px; }
+        .price { font-size: 48px; font-weight: 800; margin: 5px 0; }
         .badge { display: inline-block; padding: 6px 12px; border-radius: 6px; font-weight: bold; text-transform: uppercase; font-size: 14px; }
         
-        /* UNIFIED WALLET CARD */
-        .wallet-card { 
-            background: linear-gradient(135deg, #1e293b, #0f172a); 
-            border: 1px solid #334155;
-            border-radius: 16px; padding: 20px; color: white; margin-bottom: 20px; 
-        }
+        .wallet-card { background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid #334155; border-radius: 16px; padding: 20px; color: white; margin-bottom: 20px; }
         .wallet-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #334155; }
-        .wallet-row:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
-        .w-label { font-size: 12px; color: #94a3b8; text-transform: uppercase; font-weight: 600; }
+        .wallet-row:last-child { border: none; margin: 0; padding: 0; }
         .w-val { font-size: 18px; font-weight: 700; }
-        .w-total { font-size: 24px; font-weight: 800; color: #4ade80; }
 
         .chart-container { height: 300px; width: 100%; display: flex; align-items: center; justify-content: center; background: #0f172a; border-radius: 12px; margin-bottom: 20px; }
         img#chart { width: 100%; height: 100%; object-fit: contain; }
-        
         .detail-item { background: #1f2937; padding: 10px; border-radius: 8px; margin-bottom: 8px; font-size: 13px; display: flex; gap: 10px; align-items: center; border-left: 4px solid #374151; }
 
         .chat-box { height: 400px; display: flex; flex-direction: column; background: #111827; border-radius: 16px; border: 1px solid #1f2937; overflow: hidden; }
         .chat-msgs { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; font-size: 13px; background: #0f172a; }
         .msg { padding: 10px; border-radius: 10px; max-width: 85%; }
-        .msg.bot { background: #1e3a8a; align-self: flex-start; color: #bfdbfe; }
-        .msg.user { background: #374151; align-self: flex-end; color: white; }
+        .msg.bot { background: #1e3a8a; align-self: flex-start; }
+        .msg.user { background: #374151; align-self: flex-end; }
         .chat-input-area { display: flex; padding: 10px; background: #1f2937; gap: 5px; }
         .chat-input { flex: 1; background: #374151; border: none; padding: 10px; border-radius: 6px; color: white; }
         .chat-btn { background: #2563eb; border: none; padding: 0 15px; border-radius: 6px; color: white; cursor: pointer; }
-
     </style>
 </head>
 <body>
@@ -63,26 +55,24 @@
                 <div style="color:#9ca3af; font-size:14px; font-weight:bold" id="symbol-name">BTC / USDT</div>
                 <div class="price" id="price">---</div>
                 <div class="badge" id="decision">---</div>
-                <div style="font-size:12px; color:#6b7280; margin-top:5px" id="last-update">Actualizando...</div>
+                <div style="font-size:12px; color:#6b7280; margin-top:5px" id="last-update">Conectando...</div>
             </div>
             <div class="chart-container">
-                <img id="chart" src="" alt="Cargando..." />
+                <img id="chart" src="" alt="Esperando datos..." />
             </div>
             <div id="details-list"></div>
         </div>
 
-        <div style="display:flex; flex-direction:column; gap:20px;">
+        <div>
+            <div class="wallet-card" id="wallet-container">Cargando Billetera...</div>
             
-            <div class="wallet-card" id="wallet-container">
-                </div>
-
             <div class="chat-box">
                 <div style="padding:15px; border-bottom:1px solid #374151; font-weight:bold; color:#94a3b8">🤖 Asesor Quant</div>
                 <div class="chat-msgs" id="chatBody">
-                    <div class="msg bot">Hola. Analizando cartera mixta. ¿Consultas?</div>
+                    <div class="msg bot">Hola. Selecciona una cripto arriba.</div>
                 </div>
                 <div class="chat-input-area">
-                    <input type="text" class="chat-input" id="chatInput" placeholder="Pregunta algo..." onkeypress="handleEnter(event)">
+                    <input type="text" class="chat-input" id="chatInput" placeholder="Pregunta..." onkeypress="handleEnter(event)">
                     <button class="chat-btn" onclick="sendMessage()">➤</button>
                 </div>
             </div>
@@ -106,58 +96,61 @@
                 const res = await fetch(`/analisis?symbol=${currentSymbol}`);
                 const data = await res.json();
 
-                document.getElementById('price').innerText = "$" + data.precio.toLocaleString('en-US', {minimumFractionDigits: 2});
-                document.getElementById('last-update').innerText = "Última actualización: " + data.update_time;
-                
-                const decEl = document.getElementById('decision');
-                decEl.innerText = data.decision;
-                let color = "#6b7280";
-                if(data.decision === "COMPRA") color = "#10b981";
-                if(data.decision === "VENTA") color = "#ef4444";
-                decEl.style.backgroundColor = color + "20";
-                decEl.style.color = color;
+                // PROTECCIÓN ANTI-CRASH: Si no hay precio, mostramos "Offline" pero no rompemos la app
+                if (!data.precio || data.precio === 0) {
+                    document.getElementById('price').innerText = "Offline";
+                    document.getElementById('decision').innerText = "ERROR RED";
+                    document.getElementById('last-update').innerText = "Reintentando conexión...";
+                } else {
+                    document.getElementById('price').innerText = "$" + data.precio.toLocaleString('en-US', {minimumFractionDigits: 2});
+                    document.getElementById('last-update').innerText = "Actualizado: " + data.update_time;
+                    document.getElementById('decision').innerText = data.decision;
+                    
+                    let c = "#6b7280";
+                    if(data.decision === "COMPRA") c = "#10b981";
+                    if(data.decision === "VENTA") c = "#ef4444";
+                    const badge = document.getElementById('decision');
+                    badge.style.color = c;
+                    badge.style.backgroundColor = c + "20";
+                }
 
                 if(data.grafico) document.getElementById('chart').src = data.grafico;
 
                 const list = document.getElementById('details-list');
                 list.innerHTML = '';
-                data.detalles.forEach(d => {
-                    let c = "#ef4444";
-                    if(d.includes("✅") || d.includes("🚀") || d.includes("🔥")) c = "#10b981";
-                    list.innerHTML += `<div class="detail-item" style="border-left-color:${c}"><span style="color:${c}">●</span> ${d}</div>`;
-                });
-
-                // BILLETERA MIXTA
-                const wDiv = document.getElementById('wallet-container');
-                const pf = data.portfolio;
-                const cryptoVal = pf.coin * data.precio;
-                const totalVal = pf.usdt + cryptoVal;
-                
-                // Calculamos PNL si hay crypto
-                let pnlHtml = "";
-                if(pf.coin > 0) {
-                    const profit = cryptoVal - (pf.coin * pf.avg_price);
-                    const pct = ((data.precio - pf.avg_price) / pf.avg_price) * 100;
-                    const colorP = profit >= 0 ? "#4ade80" : "#fca5a5";
-                    pnlHtml = `<span style="color:${colorP}; font-size:12px">(${profit>=0?'+':''}${pct.toFixed(1)}%)</span>`;
+                if(data.detalles) {
+                    data.detalles.forEach(d => {
+                        let c = "#ef4444";
+                        if(d.includes("✅") || d.includes("🚀") || d.includes("🔥")) c = "#10b981";
+                        list.innerHTML += `<div class="detail-item" style="border-left-color:${c}"><span style="color:${c}">●</span> ${d}</div>`;
+                    });
                 }
 
-                wDiv.innerHTML = `
-                    <div class="wallet-row">
-                        <div class="w-label">Saldo USDT</div>
-                        <div class="w-val" style="color:#60a5fa">$${pf.usdt.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                    </div>
-                    <div class="wallet-row">
-                        <div class="w-label">Tenencia ${currentSymbol.replace('USDT','')}</div>
-                        <div class="w-val" style="color:#fbbf24">${pf.coin.toFixed(5)} ${pnlHtml}</div>
-                    </div>
-                    <div class="wallet-row">
-                        <div class="w-label">Patrimonio Total</div>
-                        <div class="w-total">$${totalVal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                    </div>
-                `;
+                // BILLETERA (Siempre visible aunque falle el precio)
+                const wDiv = document.getElementById('wallet-container');
+                const pf = data.portfolio;
+                if (pf) {
+                    const price = data.precio || 0;
+                    const cryptoVal = pf.coin * price;
+                    const totalVal = pf.usdt + cryptoVal;
+                    
+                    wDiv.innerHTML = `
+                        <div class="wallet-row">
+                            <span style="color:#94a3b8; font-size:12px">USDT</span>
+                            <span class="w-val" style="color:#60a5fa">$${pf.usdt.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                        </div>
+                        <div class="wallet-row">
+                            <span style="color:#94a3b8; font-size:12px">${currentSymbol.replace('USDT','')}</span>
+                            <span class="w-val" style="color:#fbbf24">${pf.coin.toFixed(5)}</span>
+                        </div>
+                        <div class="wallet-row">
+                            <span style="color:#94a3b8; font-size:12px">TOTAL</span>
+                            <span style="font-size:24px; font-weight:800; color:#4ade80">$${totalVal.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                        </div>
+                    `;
+                }
 
-            } catch (e) { console.error(e); }
+            } catch (e) { console.error("Error JS:", e); }
         }
 
         function handleEnter(e) { if(e.key === 'Enter') sendMessage(); }
@@ -165,10 +158,12 @@
             const input = document.getElementById('chatInput');
             const txt = input.value.trim();
             if(!txt) return;
+            
             const chat = document.getElementById('chatBody');
             chat.innerHTML += `<div class="msg user">${txt}</div>`;
             input.value = '';
             chat.scrollTop = chat.scrollHeight;
+
             try {
                 const res = await fetch('/chat', {
                     method: 'POST',
@@ -177,7 +172,7 @@
                 });
                 const d = await res.json();
                 chat.innerHTML += `<div class="msg bot">${d.reply}</div>`;
-            } catch(e) { chat.innerHTML += `<div class="msg bot">Error.</div>`; }
+            } catch(e) { chat.innerHTML += `<div class="msg bot">Error conexión IA.</div>`; }
             chat.scrollTop = chat.scrollHeight;
         }
 

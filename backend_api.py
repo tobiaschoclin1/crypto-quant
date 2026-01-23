@@ -28,12 +28,10 @@ GEMINI_API_KEY = "AIzaSyAp1WURjJ03HhdB8NzkO1Rhre5-FqRtFIA"
 # --------------------
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
-
-# --- CONFIGURACIÓN DE TRADING ---
 INITIAL_CAPITAL = 1000.0
-BUY_AMOUNT = 200.0  # Compra de a $200 por vez
+BUY_AMOUNT = 200.0 
 
-# Cartera (Ya no usamos "in_market", usamos saldos reales)
+# Cartera en Memoria
 portfolios = {
     sym: {"usdt": INITIAL_CAPITAL, "coin": 0.0, "avg_price": 0.0, "trades": 0}
     for sym in SYMBOLS
@@ -73,17 +71,13 @@ async def chat_with_ai(request: Request):
         contexto = f"""
         Eres un Asesor Financiero Crypto.
         Analiza {symbol}.
-        
         DATOS TÉCNICOS:
         - Precio: ${precio:,.4f}
         - Señal Técnica: {decision}
         - Indicadores: {', '.join(razones)}
-        
-        MI CARTERA ACTUAL ({symbol}):
-        - USDT Disponible: ${pf.get('usdt', 0):,.2f}
-        - Crypto Tenencia: {pf.get('coin', 0):,.4f} {symbol.replace('USDT','')}
-        - Precio Promedio Compra: ${pf.get('avg_price', 0):,.2f}
-        
+        MI CARTERA:
+        - USDT: ${pf.get('usdt', 0):,.2f}
+        - Crypto: {pf.get('coin', 0):,.4f} {symbol.replace('USDT','')}
         Usuario: "{user_message}"
         Responde corto, útil y humano.
         """
@@ -91,31 +85,41 @@ async def chat_with_ai(request: Request):
         headers = {"Content-Type": "application/json"}
         payload = { "contents": [{ "parts": [{"text": contexto}] }] }
         
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-        try:
-            r = requests.post(url, headers=headers, json=payload, timeout=5)
-            if r.status_code == 200:
-                return JSONResponse({"reply": r.json()['candidates'][0]['content']['parts'][0]['text']})
-        except: pass
+        # Intentamos con Flash y luego Pro (Fallback)
+        modelos = ["gemini-1.5-flash", "gemini-pro"]
+        for m in modelos:
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
+                r = requests.post(url, headers=headers, json=payload, timeout=5)
+                if r.status_code == 200:
+                    return JSONResponse({"reply": r.json()['candidates'][0]['content']['parts'][0]['text']})
+            except: continue
         
-        return JSONResponse({"reply": "Estoy recalibrando mis sensores. Pregúntame en un momento."})
+        return JSONResponse({"reply": "Estoy analizando el mercado, dame un momento..."})
 
     except Exception as e:
         return JSONResponse({"reply": f"Error: {str(e)}"})
 
 # --- LÓGICA DE MERCADO ---
 def obtener_datos(symbol):
-    url = "https://api.binance.com/api/v3/klines"
+    # Lista de endpoints para evitar bloqueos
+    urls = [
+        "https://api.binance.com/api/v3/klines",
+        "https://api.binance.us/api/v3/klines",
+        "https://api1.binance.com/api/v3/klines"
+    ]
     params = {"symbol": symbol, "interval": "15m", "limit": 200}
-    try:
-        r = requests.get(url, params=params, timeout=2)
-        if r.status_code == 200:
-            df = pd.DataFrame(r.json(), columns=['t', 'o', 'h', 'l', 'c', 'v', 'x', 'x', 'x', 'x', 'x', 'x'])
-            df['c'] = df['c'].astype(float)
-            df['v'] = df['v'].astype(float)
-            return df
-    except: pass
-    return pd.DataFrame()
+    
+    for url in urls:
+        try:
+            r = requests.get(url, params=params, timeout=3)
+            if r.status_code == 200:
+                df = pd.DataFrame(r.json(), columns=['t', 'o', 'h', 'l', 'c', 'v', 'x', 'x', 'x', 'x', 'x', 'x'])
+                df['c'] = df['c'].astype(float)
+                df['v'] = df['v'].astype(float)
+                return df
+        except: continue
+    return pd.DataFrame() # Retorna vacío si fallan todos
 
 def calcular_indicadores(df):
     delta = df['c'].diff()
@@ -156,12 +160,9 @@ def ejecutar_estrategia(symbol, df):
     prev = df.iloc[-2]
     precio = current['c']
     
-    # ESTRATEGIA: Tendencia + Retroceso RSI + Cruce MACD
     tendencia_alcista = precio > current['ema200']
     cruce_macd_alcista = (prev['macd'] < prev['signal']) and (current['macd'] > current['signal'])
-    rsi_bajo = current['rsi'] < 55 # Buscamos entrar en retrocesos
     
-    # PUNTUACIÓN
     score = 5
     razones = []
     
@@ -175,44 +176,31 @@ def ejecutar_estrategia(symbol, df):
     
     score = max(0, min(10, score))
     
-    # DECISIÓN BASE
     decision = "NEUTRAL"
-    # Compramos si hay tendencia Y cruce O rsi muy bajo
     if tendencia_alcista and (cruce_macd_alcista or score >= 7): decision = "COMPRA"
-    # Vendemos si perdemos tendencia o indicador de salida fuerte
     elif (not tendencia_alcista) or score <= 3: decision = "VENTA"
     
-    # GESTIÓN DE CARTERA MIXTA
     pf = portfolios[symbol]
     
-    # --- LÓGICA DE COMPRA (Acumulativa) ---
-    # Compramos si la señal es COMPRA Y tenemos USDT suficiente
+    # Compras parciales ($200)
     if decision == "COMPRA" and pf["usdt"] >= BUY_AMOUNT:
-        cantidad_compra = BUY_AMOUNT / precio
-        
-        # Promedio ponderado del precio de entrada
-        total_coins = pf["coin"] + cantidad_compra
+        cantidad = BUY_AMOUNT / precio
+        total_coins = pf["coin"] + cantidad
         total_cost = (pf["coin"] * pf["avg_price"]) + BUY_AMOUNT
         pf["avg_price"] = total_cost / total_coins if total_coins > 0 else precio
-        
-        pf["coin"] += cantidad_compra
+        pf["coin"] += cantidad
         pf["usdt"] -= BUY_AMOUNT
-        
-        enviar_telegram(f"🔵 *{symbol} COMPRA PARCIAL*\nMonto: ${BUY_AMOUNT}\nPrecio: ${precio:,.4f}\nSaldo Crypto: {pf['coin']:.4f}\nSaldo USDT: ${pf['usdt']:.2f}")
+        enviar_telegram(f"🔵 *{symbol} COMPRA PARCIAL*\nPrecio: ${precio:,.2f}")
 
-    # --- LÓGICA DE VENTA (Total) ---
-    # Vendemos si la señal es VENTA Y tenemos Crypto
-    elif decision == "VENTA" and pf["coin"] * precio > 10: # Mínimo $10 para vender
-        valor_venta = pf["coin"] * precio
-        ganancia = valor_venta - (pf["coin"] * pf["avg_price"])
-        
-        pf["usdt"] += valor_venta
+    # Venta total
+    elif decision == "VENTA" and pf["coin"] * precio > 10: 
+        valor = pf["coin"] * precio
+        ganancia = valor - (pf["coin"] * pf["avg_price"])
+        pf["usdt"] += valor
         pf["coin"] = 0
-        pf["avg_price"] = 0
         pf["trades"] += 1
-        
         icono = "✅" if ganancia > 0 else "❌"
-        enviar_telegram(f"🟠 *{symbol} VENTA TOTAL*\nPrecio: ${precio:,.4f}\nResultado: {icono} ${ganancia:,.2f}\nSaldo USDT: ${pf['usdt']:.2f}")
+        enviar_telegram(f"🟠 *{symbol} VENTA TOTAL*\nResultado: {icono} ${ganancia:,.2f}")
 
     return {
         "symbol": symbol,
@@ -230,7 +218,21 @@ def get_analisis(symbol: str = "BTCUSDT"):
     if symbol not in SYMBOLS: symbol = "BTCUSDT"
     
     df = obtener_datos(symbol)
-    if df.empty: return {"error": "Sin datos"}
+    
+    # --- PROTECCIÓN CONTRA FALLOS ---
+    if df.empty:
+        # Retornamos datos seguros para que el frontend NO se rompa
+        print(f"Error fetching {symbol}")
+        return {
+            "symbol": symbol,
+            "precio": 0,
+            "score": 0,
+            "decision": "ERROR RED",
+            "detalles": ["Sin conexión con Binance"],
+            "grafico": "",
+            "portfolio": portfolios[symbol], # Esto permite ver la billetera aunque no haya precio
+            "update_time": datetime.now().strftime("%H:%M:%S")
+        }
     
     df = calcular_indicadores(df)
     resultado = ejecutar_estrategia(symbol, df)
@@ -238,12 +240,13 @@ def get_analisis(symbol: str = "BTCUSDT"):
     
     try:
         tz = pytz.timezone('America/Argentina/Buenos_Aires')
-        hora = datetime.now(tz).strftime("%H:%M:%S")
-    except: hora = datetime.now().strftime("%H:%M:%S")
-    
-    resultado["update_time"] = hora
+        resultado["update_time"] = datetime.now(tz).strftime("%H:%M:%S")
+    except: 
+        resultado["update_time"] = datetime.now().strftime("%H:%M:%S")
+        
     return resultado
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
+    # Importante: host 0.0.0.0 para que Render lo vea
     uvicorn.run(app, host="0.0.0.0", port=port)
