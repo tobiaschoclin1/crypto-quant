@@ -312,6 +312,23 @@ def get_analisis(symbol: str = "BTCUSDT"):
         
     return resultado
 
+
+# --- ENDPOINT ESPECIAL PARA UPTIMEROBOT ---
+# Este enlace despierta a las 5 monedas de una sola vez
+@app.get("/update_all")
+def update_all_symbols():
+    resumen = []
+    for sym in SYMBOLS:
+        # Forzamos el análisis de cada moneda
+        # Esto activa las compras, ventas, stop loss y take profit
+        dato = get_analisis(sym)
+        resumen.append({
+            "moneda": sym, 
+            "accion": dato["decision"], 
+            "precio": dato["precio"]
+        })
+    return {"status": "Ciclo completo ejecutado", "detalles": resumen}
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
