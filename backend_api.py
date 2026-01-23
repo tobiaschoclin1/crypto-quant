@@ -25,7 +25,7 @@ app.add_middleware(
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
 # Tu clave actual (que sabemos que funciona para autenticar)
-GEMINI_API_KEY = "AIzaSyAp1WURjJ03HhdB8NzkO1Rhre5-FqRtFIA" 
+GEMINI_API_KEY = "AIzaSyBefrRTQIgNxgu0WU0vII2aAgk4EPxwvho" 
 # --------------------
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
