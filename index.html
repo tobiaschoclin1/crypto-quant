@@ -3,231 +3,186 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crypto Quant Dashboard</title>
+    <title>Crypto Quant Pro</title>
     <style>
-        body { background-color: #0b1220; color: white; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        body { background-color: #0b1220; color: white; font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .main-container { width: 100%; max-width: 1000px; display: grid; gap: 20px; grid-template-columns: 1fr; }
+        @media (min-width: 768px) { .main-container { grid-template-columns: 2fr 1fr; } }
+
+        .nav-bar { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 20px; width: 100%; max-width: 1000px; }
+        .nav-btn { background: #1f2937; border: 1px solid #374151; color: #9ca3af; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; white-space: nowrap; transition: all 0.2s; }
+        .nav-btn.active { background: #2563eb; color: white; border-color: #2563eb; box-shadow: 0 0 15px rgba(37, 99, 235, 0.4); }
+
+        .card { background: #111827; border: 1px solid #1f2937; border-radius: 16px; padding: 20px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); }
         
-        .main-container { width: 100%; max-width: 1100px; display: grid; gap: 30px; grid-template-columns: 1fr; }
+        .header-info { text-align: center; margin-bottom: 20px; }
+        .price { font-size: 48px; font-weight: 800; margin: 5px 0; letter-spacing: -1px; }
+        .badge { display: inline-block; padding: 6px 12px; border-radius: 6px; font-weight: bold; text-transform: uppercase; font-size: 14px; }
         
-        @media (min-width: 768px) { 
-            .main-container { grid-template-columns: 1.5fr 1fr; align-items: start; } 
-            .chart-box { height: 400px !important; } 
+        /* UNIFIED WALLET CARD */
+        .wallet-card { 
+            background: linear-gradient(135deg, #1e293b, #0f172a); 
+            border: 1px solid #334155;
+            border-radius: 16px; padding: 20px; color: white; margin-bottom: 20px; 
         }
+        .wallet-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #334155; }
+        .wallet-row:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+        .w-label { font-size: 12px; color: #94a3b8; text-transform: uppercase; font-weight: 600; }
+        .w-val { font-size: 18px; font-weight: 700; }
+        .w-total { font-size: 24px; font-weight: 800; color: #4ade80; }
 
-        /* HEADER & PRECIO */
-        .header-section { text-align: center; margin-bottom: 10px; }
-        .pair-title { color: #94a3b8; font-size: 14px; letter-spacing: 1px; font-weight: 600; }
-        .price-display { font-size: 56px; font-weight: 800; margin: 5px 0; letter-spacing: -1px; }
-        .decision-badge { font-size: 20px; font-weight: 700; text-transform: uppercase; padding: 8px 16px; border-radius: 8px; background: rgba(255,255,255,0.05); display: inline-block; margin-bottom: 5px; }
-        .last-update { font-size: 12px; color: #64748b; margin-top: 5px; }
-
-        /* CHART */
-        .chart-box { width: 100%; height: 250px; background: #111827; border-radius: 16px; padding: 10px; box-sizing: border-box; border: 1px solid #1f2937; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3); }
+        .chart-container { height: 300px; width: 100%; display: flex; align-items: center; justify-content: center; background: #0f172a; border-radius: 12px; margin-bottom: 20px; }
         img#chart { width: 100%; height: 100%; object-fit: contain; }
-
-        /* WALLET CARD */
-        .wallet-card { background: linear-gradient(135deg, #2563eb, #1e40af); border-radius: 16px; padding: 20px; color: white; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3); margin-bottom: 20px; }
-        .wallet-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        .wallet-title { font-size: 12px; opacity: 0.8; text-transform: uppercase; font-weight: 700; }
-        .wallet-status { font-size: 11px; font-weight: bold; background: rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 12px; }
-        .wallet-balance { font-size: 32px; font-weight: 700; }
-        .wallet-footer { font-size: 12px; opacity: 0.7; margin-top: 5px; }
-
-        /* ANALYSIS GRID */
-        .analysis-grid { display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: start; margin-bottom: 20px; }
-        @media (max-width: 400px) { .analysis-grid { grid-template-columns: 1fr; justify-items: center; } }
         
-        .score-container { width: 100px; height: 100px; position: relative; display: flex; justify-content: center; align-items: center; }
-        .score-ring { width: 100%; height: 100%; border-radius: 50%; border: 10px solid #334155; position: absolute; transition: border-color 0.5s ease; }
-        .score-number { font-size: 36px; font-weight: 800; z-index: 2; }
+        .detail-item { background: #1f2937; padding: 10px; border-radius: 8px; margin-bottom: 8px; font-size: 13px; display: flex; gap: 10px; align-items: center; border-left: 4px solid #374151; }
 
-        .details-list { display: flex; flex-direction: column; gap: 10px; width: 100%; }
-        .detail-item { background: #1f2937; padding: 12px 15px; border-radius: 10px; font-size: 13px; color: #e2e8f0; display: flex; align-items: center; gap: 10px; border-left: 4px solid transparent; transition: all 0.3s ease; }
-
-        /* --- NUEVA SECCIÓN DE CHAT INTEGRADA --- */
-        .chat-card {
-            background: #111827;
-            border: 1px solid #1f2937;
-            border-radius: 16px;
-            display: flex; flex-direction: column;
-            height: 350px; /* Altura fija en el dashboard */
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
-            overflow: hidden;
-        }
-        .chat-header { background: #1f2937; padding: 15px; border-bottom: 1px solid #374151; font-weight: bold; font-size: 14px; color: #94a3b8; display: flex; align-items: center; gap: 8px;}
-        .chat-body { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; font-size: 13px; background: #0f172a; }
-        
-        .msg { padding: 10px 14px; border-radius: 12px; max-width: 85%; line-height: 1.5; }
-        .msg.user { background: #374151; align-self: flex-end; color: white; border-bottom-right-radius: 2px; }
-        .msg.bot { background: #1e3a8a; align-self: flex-start; color: #bfdbfe; border-bottom-left-radius: 2px; }
-        
-        .chat-input-area { padding: 10px; border-top: 1px solid #374151; display: flex; gap: 8px; background: #1f2937; }
-        .chat-input { flex: 1; background: #374151; border: 1px solid #4b5563; color: white; padding: 10px; border-radius: 8px; outline: none; transition: border-color 0.2s; }
-        .chat-input:focus { border-color: #3b82f6; }
-        .send-btn { background: #2563eb; border: none; color: white; padding: 0 18px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: background 0.2s;}
-        .send-btn:hover { background: #1d4ed8; }
+        .chat-box { height: 400px; display: flex; flex-direction: column; background: #111827; border-radius: 16px; border: 1px solid #1f2937; overflow: hidden; }
+        .chat-msgs { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; font-size: 13px; background: #0f172a; }
+        .msg { padding: 10px; border-radius: 10px; max-width: 85%; }
+        .msg.bot { background: #1e3a8a; align-self: flex-start; color: #bfdbfe; }
+        .msg.user { background: #374151; align-self: flex-end; color: white; }
+        .chat-input-area { display: flex; padding: 10px; background: #1f2937; gap: 5px; }
+        .chat-input { flex: 1; background: #374151; border: none; padding: 10px; border-radius: 6px; color: white; }
+        .chat-btn { background: #2563eb; border: none; padding: 0 15px; border-radius: 6px; color: white; cursor: pointer; }
 
     </style>
 </head>
 <body>
 
+    <div class="nav-bar">
+        <button class="nav-btn active" onclick="changeSymbol('BTCUSDT', this)">Bitcoin</button>
+        <button class="nav-btn" onclick="changeSymbol('ETHUSDT', this)">Ethereum</button>
+        <button class="nav-btn" onclick="changeSymbol('SOLUSDT', this)">Solana</button>
+        <button class="nav-btn" onclick="changeSymbol('BNBUSDT', this)">Binance</button>
+        <button class="nav-btn" onclick="changeSymbol('ADAUSDT', this)">Cardano</button>
+    </div>
+
     <div class="main-container">
-        <div class="left-panel">
-            <div class="header-section">
-                <div class="pair-title">BTC / USDT (Binance)</div>
-                <div class="price-display" id="price">---</div>
-                <div class="decision-badge" id="decision">---</div>
-                <div class="last-update" id="last-update">Esperando datos...</div>
+        <div class="card">
+            <div class="header-info">
+                <div style="color:#9ca3af; font-size:14px; font-weight:bold" id="symbol-name">BTC / USDT</div>
+                <div class="price" id="price">---</div>
+                <div class="badge" id="decision">---</div>
+                <div style="font-size:12px; color:#6b7280; margin-top:5px" id="last-update">Actualizando...</div>
             </div>
-            <div class="chart-box">
-                <img id="chart" src="" alt="Cargando análisis..." />
+            <div class="chart-container">
+                <img id="chart" src="" alt="Cargando..." />
             </div>
+            <div id="details-list"></div>
         </div>
 
-        <div class="right-panel">
-            <div class="wallet-card">
-                <div class="wallet-header">
-                    <span class="wallet-title">Simulador IA</span>
-                    <span class="wallet-status" id="sim-status">USDT</span>
+        <div style="display:flex; flex-direction:column; gap:20px;">
+            
+            <div class="wallet-card" id="wallet-container">
                 </div>
-                <div class="wallet-balance" id="sim-balance">$1,000.00</div>
-                <div class="wallet-footer" id="sim-details">Trades cerrados: 0</div>
-            </div>
 
-            <div class="analysis-grid">
-                <div class="score-container">
-                    <div class="score-ring" id="ring"></div>
-                    <div class="score-number" id="score">0</div>
-                </div>
-                <div class="details-list" id="details-list"></div>
-            </div>
-
-            <div class="chat-card">
-                <div class="chat-header">
-                    <span>✨ Asesor Quant IA</span>
-                </div>
-                <div class="chat-body" id="chatBody">
-                    <div class="msg bot">Hola. Veo el mercado en tiempo real. ¿En qué puedo ayudarte hoy?</div>
+            <div class="chat-box">
+                <div style="padding:15px; border-bottom:1px solid #374151; font-weight:bold; color:#94a3b8">🤖 Asesor Quant</div>
+                <div class="chat-msgs" id="chatBody">
+                    <div class="msg bot">Hola. Analizando cartera mixta. ¿Consultas?</div>
                 </div>
                 <div class="chat-input-area">
-                    <input type="text" class="chat-input" id="chatInput" placeholder="Escribe tu pregunta..." onkeypress="handleEnter(event)">
-                    <button class="send-btn" onclick="sendMessage()">Enviar</button>
+                    <input type="text" class="chat-input" id="chatInput" placeholder="Pregunta algo..." onkeypress="handleEnter(event)">
+                    <button class="chat-btn" onclick="sendMessage()">➤</button>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
-        // --- LÓGICA DE DATOS (Igual que antes) ---
-        const API_URL = "/analisis";
+        let currentSymbol = 'BTCUSDT';
+        
+        function changeSymbol(symbol, btn) {
+            currentSymbol = symbol;
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('symbol-name').innerText = symbol.replace('USDT', ' / USDT');
+            document.getElementById('price').innerText = "---";
+            updateData();
+        }
 
         async function updateData() {
             try {
-                const response = await fetch(API_URL);
-                const data = await response.json();
+                const res = await fetch(`/analisis?symbol=${currentSymbol}`);
+                const data = await res.json();
 
-                document.getElementById('price').innerText = "$" + data.precio.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                document.getElementById('price').innerText = "$" + data.precio.toLocaleString('en-US', {minimumFractionDigits: 2});
                 document.getElementById('last-update').innerText = "Última actualización: " + data.update_time;
+                
                 const decEl = document.getElementById('decision');
                 decEl.innerText = data.decision;
-                
-                let color = "#94a3b8"; 
-                if (data.score >= 8) color = "#4ade80"; 
-                else if (data.score <= 3) color = "#ef4444"; 
-                else color = "#facc15"; 
+                let color = "#6b7280";
+                if(data.decision === "COMPRA") color = "#10b981";
+                if(data.decision === "VENTA") color = "#ef4444";
+                decEl.style.backgroundColor = color + "20";
                 decEl.style.color = color;
-                decEl.style.background = color + "15";
 
-                if (data.grafico_img) document.getElementById('chart').src = data.grafico_img;
-
-                document.getElementById('score').innerText = data.score;
-                document.getElementById('ring').style.borderColor = color;
-                document.getElementById('score').style.color = color;
+                if(data.grafico) document.getElementById('chart').src = data.grafico;
 
                 const list = document.getElementById('details-list');
-                list.innerHTML = ''; 
-                data.detalles.forEach(det => {
-                    const isGood = det.includes("✅");
-                    const isWarn = det.includes("⚠️");
-                    const text = det.replace(/✅|❌|⚠️/g, '').trim();
-                    let icon = "✕";
-                    let itemColor = "#ef4444"; 
-                    if (isGood) { icon = "✓"; itemColor = "#4ade80"; }
-                    else if (isWarn) { icon = "!"; itemColor = "#facc15"; }
-                    const div = document.createElement('div');
-                    div.className = 'detail-item';
-                    div.style.borderLeftColor = itemColor;
-                    div.innerHTML = `<span style="color:${itemColor}; font-weight:900; font-size:14px;">${icon}</span> ${text}`;
-                    list.appendChild(div);
+                list.innerHTML = '';
+                data.detalles.forEach(d => {
+                    let c = "#ef4444";
+                    if(d.includes("✅") || d.includes("🚀") || d.includes("🔥")) c = "#10b981";
+                    list.innerHTML += `<div class="detail-item" style="border-left-color:${c}"><span style="color:${c}">●</span> ${d}</div>`;
                 });
 
-                if (data.simulacion) {
-                    const balance = data.simulacion.balance;
-                    document.getElementById('sim-balance').innerText = "$" + balance.toLocaleString('en-US', {minimumFractionDigits: 2});
-                    const statusEl = document.getElementById('sim-status');
-                    const detailsEl = document.getElementById('sim-details');
-                    
-                    if (data.simulacion.invertido) {
-                        statusEl.innerText = "INVERTIDO (BTC)";
-                        statusEl.style.background = "rgba(74, 222, 128, 0.3)";
-                        statusEl.style.color = "#dcfce7";
-                        const entrada = data.simulacion.precio_entrada;
-                        const actual = data.precio;
-                        const cambio = ((actual - entrada) / entrada) * 100;
-                        const signo = cambio > 0 ? '+' : '';
-                        detailsEl.innerText = `Entrada: $${entrada.toLocaleString()} (${signo}${cambio.toFixed(2)}%)`;
-                        detailsEl.style.color = cambio >= 0 ? "#4ade80" : "#ef4444";
-                    } else {
-                        statusEl.innerText = "LÍQUIDO (USDT)";
-                        statusEl.style.background = "rgba(255, 255, 255, 0.2)";
-                        statusEl.style.color = "white";
-                        detailsEl.innerText = `Trades cerrados: ${data.simulacion.trades}`;
-                        detailsEl.style.color = "rgba(255,255,255,0.7)";
-                    }
+                // BILLETERA MIXTA
+                const wDiv = document.getElementById('wallet-container');
+                const pf = data.portfolio;
+                const cryptoVal = pf.coin * data.precio;
+                const totalVal = pf.usdt + cryptoVal;
+                
+                // Calculamos PNL si hay crypto
+                let pnlHtml = "";
+                if(pf.coin > 0) {
+                    const profit = cryptoVal - (pf.coin * pf.avg_price);
+                    const pct = ((data.precio - pf.avg_price) / pf.avg_price) * 100;
+                    const colorP = profit >= 0 ? "#4ade80" : "#fca5a5";
+                    pnlHtml = `<span style="color:${colorP}; font-size:12px">(${profit>=0?'+':''}${pct.toFixed(1)}%)</span>`;
                 }
-            } catch (error) { console.error(error); }
-        }
-        setInterval(updateData, 5000);
-        updateData();
 
-        // --- LÓGICA DEL CHAT ---
-        function handleEnter(e) {
-            if (e.key === 'Enter') sendMessage();
+                wDiv.innerHTML = `
+                    <div class="wallet-row">
+                        <div class="w-label">Saldo USDT</div>
+                        <div class="w-val" style="color:#60a5fa">$${pf.usdt.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                    </div>
+                    <div class="wallet-row">
+                        <div class="w-label">Tenencia ${currentSymbol.replace('USDT','')}</div>
+                        <div class="w-val" style="color:#fbbf24">${pf.coin.toFixed(5)} ${pnlHtml}</div>
+                    </div>
+                    <div class="wallet-row">
+                        <div class="w-label">Patrimonio Total</div>
+                        <div class="w-total">$${totalVal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                    </div>
+                `;
+
+            } catch (e) { console.error(e); }
         }
 
+        function handleEnter(e) { if(e.key === 'Enter') sendMessage(); }
         async function sendMessage() {
             const input = document.getElementById('chatInput');
-            const text = input.value.trim();
-            if (!text) return;
-
-            addMessage(text, 'user');
+            const txt = input.value.trim();
+            if(!txt) return;
+            const chat = document.getElementById('chatBody');
+            chat.innerHTML += `<div class="msg user">${txt}</div>`;
             input.value = '';
-
-            const loadingId = addMessage("Escribiendo...", 'bot');
-
+            chat.scrollTop = chat.scrollHeight;
             try {
                 const res = await fetch('/chat', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: text })
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ message: txt, symbol: currentSymbol })
                 });
-                const data = await res.json();
-                document.getElementById(loadingId).innerText = data.reply;
-            } catch (e) {
-                document.getElementById(loadingId).innerText = "Error de conexión con la IA.";
-            }
+                const d = await res.json();
+                chat.innerHTML += `<div class="msg bot">${d.reply}</div>`;
+            } catch(e) { chat.innerHTML += `<div class="msg bot">Error.</div>`; }
+            chat.scrollTop = chat.scrollHeight;
         }
 
-        function addMessage(text, sender) {
-            const body = document.getElementById('chatBody');
-            const div = document.createElement('div');
-            div.className = `msg ${sender}`;
-            div.id = 'msg-' + Date.now();
-            div.innerText = text;
-            body.appendChild(div);
-            body.scrollTop = body.scrollHeight;
-            return div.id;
-        }
+        setInterval(updateData, 5000);
+        updateData();
     </script>
 </body>
 </html>
