@@ -67,8 +67,7 @@
             <div class="chat-box">
                 <div style="padding:15px; border-bottom:1px solid #374151; font-weight:bold; color:#94a3b8">🤖 Asesor Quant</div>
                 <div class="chat-msgs" id="chatBody">
-                    <div class="msg bot">Hola. Selecciona una moneda. Soy tu copiloto.</div>
-                </div>
+                    </div>
                 <div class="chat-input-area">
                     <input type="text" class="chat-input" id="chatInput" placeholder="Pregunta algo..." onkeypress="handleEnter(event)">
                     <button class="chat-btn" onclick="sendMessage()">➤</button>
@@ -80,12 +79,47 @@
     <script>
         let currentSymbol = 'BTCUSDT';
         
+        // --- MEMORIA DEL CHAT ---
+        // Guardamos el historial de cada moneda aquí
+        const chatStore = {
+            'BTCUSDT': [{sender: 'bot', text: 'Hola. Analizando Bitcoin. ¿Preguntas?'}],
+            'ETHUSDT': [{sender: 'bot', text: 'Hola. Analizando Ethereum. ¿Preguntas?'}],
+            'SOLUSDT': [{sender: 'bot', text: 'Hola. Analizando Solana. ¿Preguntas?'}],
+            'BNBUSDT': [{sender: 'bot', text: 'Hola. Analizando Binance Coin. ¿Preguntas?'}],
+            'ADAUSDT': [{sender: 'bot', text: 'Hola. Analizando Cardano. ¿Preguntas?'}]
+        };
+
+        // Renderiza el chat de la moneda actual
+        function renderChat() {
+            const chatBody = document.getElementById('chatBody');
+            chatBody.innerHTML = '';
+            
+            // Recuperamos historial o iniciamos uno nuevo si no existe
+            const history = chatStore[currentSymbol] || [];
+            
+            history.forEach(msg => {
+                const div = document.createElement('div');
+                div.className = `msg ${msg.sender}`;
+                div.innerText = msg.text;
+                chatBody.appendChild(div);
+            });
+            chatBody.scrollTop = chatBody.scrollHeight;
+        }
+
         function changeSymbol(symbol, btn) {
             currentSymbol = symbol;
+            
+            // UI Botones
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
+            
+            // UI Datos
             document.getElementById('symbol-name').innerText = symbol.replace('USDT', ' / USDT');
-            document.getElementById('price').innerText = "Cargando...";
+            document.getElementById('price').innerText = "---";
+            
+            // CAMBIO DE CHAT
+            renderChat();
+            
             updateData();
         }
 
@@ -157,14 +191,22 @@
             const txt = input.value.trim();
             if(!txt) return;
             
-            const chat = document.getElementById('chatBody');
-            chat.innerHTML += `<div class="msg user">${txt}</div>`;
+            // 1. Guardar mensaje usuario en memoria
+            if(!chatStore[currentSymbol]) chatStore[currentSymbol] = [];
+            chatStore[currentSymbol].push({sender: 'user', text: txt});
+            
+            // 2. Renderizar
+            renderChat();
+            
             input.value = '';
             
-            // Mensaje de carga temporal
-            const loadingId = 'loading-' + Date.now();
-            chat.innerHTML += `<div class="msg bot" id="${loadingId}">Pensando... 🤔</div>`;
-            chat.scrollTop = chat.scrollHeight;
+            // Loading ficticio en memoria visual solamente (no se guarda)
+            const chatBody = document.getElementById('chatBody');
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'msg bot';
+            loadingDiv.innerText = '...';
+            chatBody.appendChild(loadingDiv);
+            chatBody.scrollTop = chatBody.scrollHeight;
 
             try {
                 const res = await fetch('/chat', {
@@ -174,15 +216,24 @@
                 });
                 const d = await res.json();
                 
-                // Reemplazamos el mensaje de carga
-                document.getElementById(loadingId).innerText = d.reply;
+                // Borrar loading
+                chatBody.removeChild(loadingDiv);
+                
+                // 3. Guardar respuesta bot en memoria
+                chatStore[currentSymbol].push({sender: 'bot', text: d.reply});
+                
+                // 4. Renderizar final
+                renderChat();
                 
             } catch(e) { 
-                document.getElementById(loadingId).innerText = "Error: No pude conectar con la IA."; 
+                chatBody.removeChild(loadingDiv);
+                chatStore[currentSymbol].push({sender: 'bot', text: "Error de conexión."});
+                renderChat();
             }
-            chat.scrollTop = chat.scrollHeight;
         }
 
+        // Init
+        renderChat();
         setInterval(updateData, 5000);
         updateData();
     </script>

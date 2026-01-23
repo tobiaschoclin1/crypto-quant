@@ -24,7 +24,7 @@ app.add_middleware(
 # --- CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
-# Tu clave actual (que sabemos que funciona para autenticar)
+# Tu clave nueva
 GEMINI_API_KEY = "AIzaSyBefrRTQIgNxgu0WU0vII2aAgk4EPxwvho" 
 # --------------------
 
@@ -37,8 +37,6 @@ portfolios = {
     for sym in SYMBOLS
 }
 market_data_cache = {} 
-
-# Variable global para recordar el modelo que funciona y no preguntar siempre
 valid_model_name = None
 
 def enviar_telegram(mensaje):
@@ -55,7 +53,6 @@ def read_root():
             return f.read()
     return "<h1>Error: No se encuentra index.html</h1>"
 
-# --- CHATBOT CON AUTODESCUBRIMIENTO DE MODELOS ---
 @app.post("/chat")
 async def chat_with_ai(request: Request):
     global valid_model_name
@@ -71,57 +68,60 @@ async def chat_with_ai(request: Request):
         decision = datos.get("decision", "NEUTRAL")
         razones = datos.get("detalles", [])
         pf = datos.get("portfolio", {})
+        
+        # Datos extra para precisión
+        soporte = datos.get("soporte", precio * 0.95)
+        resistencia = datos.get("resistencia", precio * 1.05)
 
         contexto = f"""
-        Actúa como un Trader Experto en {symbol}.
-        DATOS: Precio ${precio:,.2f}, Señal {decision}, Razones: {', '.join(razones)}.
-        CARTERA: USDT ${pf.get('usdt', 0):,.2f}, Crypto {pf.get('coin', 0):,.4f}.
+        Actúa como un Trader Senior experto en {symbol}.
+        
+        DATOS DE MERCADO EN VIVO:
+        - Precio Actual: ${precio:,.2f}
+        - Señal del Sistema: {decision}
+        - Soporte Inmediato (Piso): ${soporte:,.2f}
+        - Resistencia (Techo): ${resistencia:,.2f}
+        - Indicadores: {', '.join(razones)}
+        
+        MI PORTAFOLIO ({symbol}):
+        - Dinero Disponible: ${pf.get('usdt', 0):,.2f}
+        - Tenencia: {pf.get('coin', 0):,.4f} monedas (Precio Promedio: ${pf.get('avg_price', 0):,.2f})
+        
+        INSTRUCCIONES CLAVE:
+        1. Si el usuario pregunta "a qué precio comprar/vender", NO digas "espera confirmación". 
+           DALE EL NÚMERO DEL SOPORTE O RESISTENCIA como referencia concreta.
+           Ejemplo: "Considera entrar cerca del soporte en ${soporte:,.2f}..."
+        2. Responde corto, directo y útil.
+        
         Usuario: "{user_message}"
-        Responde en 1 frase corta y útil.
         """
         
         payload = { "contents": [{ "parts": [{"text": contexto}] }] }
         headers = {"Content-Type": "application/json"}
         
-        # 1. ¿Ya sabemos qué modelo usar?
+        # 1. Autodescubrimiento (si hace falta)
         if not valid_model_name:
-            # NO LO SABEMOS: Preguntamos a Google qué modelos hay disponibles para esta clave
-            print("Consultando lista de modelos a Google...")
-            url_list = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
             try:
-                resp_list = requests.get(url_list, timeout=5)
+                resp_list = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}", timeout=5)
                 if resp_list.status_code == 200:
-                    data = resp_list.json()
-                    # Buscamos el primer modelo que sirva para generar texto ('generateContent')
-                    for model in data.get('models', []):
-                        methods = model.get('supportedGenerationMethods', [])
-                        if 'generateContent' in methods:
-                            # Encontramos uno! (ej: "models/gemini-1.0-pro-001")
+                    for model in resp_list.json().get('models', []):
+                        if 'generateContent' in model.get('supportedGenerationMethods', []):
                             valid_model_name = model['name'].replace("models/", "")
-                            print(f"Modelo encontrado y seleccionado: {valid_model_name}")
                             break
-                else:
-                    return JSONResponse({"reply": f"Error al listar modelos: {resp_list.status_code} {resp_list.text}"})
-            except Exception as e:
-                return JSONResponse({"reply": f"Error de red listando modelos: {str(e)}"})
-        
-        # Si después de buscar seguimos sin modelo, fallamos
-        if not valid_model_name:
-            return JSONResponse({"reply": "Tu clave API es válida, pero Google dice que no tienes acceso a NINGÚN modelo de texto."})
+            except: pass
+        if not valid_model_name: valid_model_name = "gemini-1.5-flash"
 
-        # 2. Usamos el modelo encontrado
+        # 2. Chat
         url_chat = f"https://generativelanguage.googleapis.com/v1beta/models/{valid_model_name}:generateContent?key={api_key}"
-        
         response = requests.post(url_chat, headers=headers, json=payload, timeout=8)
         
         if response.status_code == 200:
             return JSONResponse({"reply": response.json()['candidates'][0]['content']['parts'][0]['text']})
         elif response.status_code == 404:
-             # Si falla con 404, reseteamos el modelo guardado para buscar de nuevo la próxima vez
-             valid_model_name = None
-             return JSONResponse({"reply": f"El modelo {valid_model_name} falló (404). Intenta de nuevo para buscar otro."})
+             valid_model_name = None 
+             return JSONResponse({"reply": "Modelo reiniciando... pregunta de nuevo."})
         else:
-            return JSONResponse({"reply": f"Error Google ({valid_model_name}): {response.text}"})
+            return JSONResponse({"reply": f"Error IA: {response.text}"})
 
     except Exception as e:
         return JSONResponse({"reply": f"Error interno: {str(e)}"})
@@ -134,7 +134,6 @@ def obtener_datos(symbol):
         "https://api.binance.us/api/v3/klines"
     ]
     params = {"symbol": symbol, "interval": "15m", "limit": 200}
-    
     for url in urls:
         try:
             r = requests.get(url, params=params, timeout=3)
@@ -142,6 +141,8 @@ def obtener_datos(symbol):
                 df = pd.DataFrame(r.json(), columns=['t', 'o', 'h', 'l', 'c', 'v', 'x', 'x', 'x', 'x', 'x', 'x'])
                 df['c'] = df['c'].astype(float)
                 df['v'] = df['v'].astype(float)
+                df['l'] = df['l'].astype(float) # Necesitamos Low para soporte
+                df['h'] = df['h'].astype(float) # Necesitamos High para resistencia
                 return df
         except: continue
     return pd.DataFrame()
@@ -184,6 +185,11 @@ def ejecutar_estrategia(symbol, df):
     current = df.iloc[-1]
     prev = df.iloc[-2]
     precio = current['c']
+    
+    # CÁLCULO DE NIVELES CLAVE (Soporte/Resistencia de ultimas 50 velas)
+    recent_data = df.tail(50)
+    soporte_local = recent_data['l'].min()
+    resistencia_local = recent_data['h'].max()
     
     tendencia_alcista = precio > current['ema200']
     cruce_macd_alcista = (prev['macd'] < prev['signal']) and (current['macd'] > current['signal'])
@@ -231,6 +237,8 @@ def ejecutar_estrategia(symbol, df):
         "score": score,
         "decision": decision,
         "detalles": razones,
+        "soporte": soporte_local,      # DATO NUEVO
+        "resistencia": resistencia_local, # DATO NUEVO
         "grafico": generar_grafico(df, symbol),
         "portfolio": pf
     }
