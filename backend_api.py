@@ -24,17 +24,13 @@ app.add_middleware(
 # --- CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
+# Tu clave actual
 GEMINI_API_KEY = "AIzaSyAp1WURjJ03HhdB8NzkO1Rhre5-FqRtFIA" 
 # --------------------
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
 INITIAL_CAPITAL = 1000.0
 BUY_AMOUNT = 200.0 
-
-# MÁSCARA PARA EVITAR BLOQUEOS DE BINANCE/GOOGLE
-HEADERS_BROWSER = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-}
 
 portfolios = {
     sym: {"usdt": INITIAL_CAPITAL, "coin": 0.0, "avg_price": 0.0, "trades": 0}
@@ -56,6 +52,7 @@ def read_root():
             return f.read()
     return "<h1>Error: No se encuentra index.html</h1>"
 
+# --- CHATBOT MODO DIAGNÓSTICO ---
 @app.post("/chat")
 async def chat_with_ai(request: Request):
     try:
@@ -64,61 +61,39 @@ async def chat_with_ai(request: Request):
         symbol = body.get("symbol", "BTCUSDT")
         api_key = GEMINI_API_KEY.strip()
 
-        # Recuperar contexto
+        # Recuperar contexto básico (si no hay, inventamos uno para probar conexión)
         datos = market_data_cache.get(symbol, {})
-        # Si no hay datos en caché, intentamos buscarlos rápido
-        if not datos:
-            print(f"Chat: Sin datos en caché para {symbol}, forzando actualización...")
-            datos = get_analisis(symbol)
-        
         precio = datos.get("precio", 0)
-        decision = datos.get("decision", "NEUTRAL")
-        razones = datos.get("detalles", [])
-        pf = datos.get("portfolio", {})
 
         contexto = f"""
-        Actúa como un Trader Senior experto en {symbol}.
-        DATOS TÉCNICOS EN VIVO:
-        - Precio Actual: ${precio:,.4f}
-        - Señal Técnica: {decision}
-        - Factores: {', '.join(razones)}
-        
-        MI CARTERA ({symbol}):
-        - USDT Disponible: ${pf.get('usdt', 0):,.2f}
-        - Tenencia Crypto: {pf.get('coin', 0):,.4f}
-        - Precio Promedio Entrada: ${pf.get('avg_price', 0):,.2f}
-        
-        Usuario pregunta: "{user_message}"
-        Responde en 1 o 2 frases cortas, útiles y con personalidad.
+        Eres un Trader. 
+        Precio {symbol}: ${precio}. 
+        Usuario: "{user_message}"
+        Responde corto.
         """
         
         payload = { "contents": [{ "parts": [{"text": contexto}] }] }
+        headers = {"Content-Type": "application/json"}
         
-        # Intentamos con Flash y luego Pro
-        modelos = ["gemini-1.5-flash", "gemini-pro"]
+        # 1. Prueba Directa con v1beta (Estándar)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
         
-        for m in modelos:
-            try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
-                # Agregamos headers para que Google no rechace la petición python
-                r = requests.post(url, headers=HEADERS_BROWSER, json=payload, timeout=8)
-                
-                if r.status_code == 200:
-                    return JSONResponse({"reply": r.json()['candidates'][0]['content']['parts'][0]['text']})
-                else:
-                    print(f"Fallo modelo {m}: {r.status_code} - {r.text}")
-            except Exception as e: 
-                print(f"Excepción modelo {m}: {str(e)}")
-                continue
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
         
-        return JSONResponse({"reply": "Mis conexiones neuronales fallaron (Error de API Google). Intenta en unos segundos."})
+        if response.status_code == 200:
+            return JSONResponse({"reply": response.json()['candidates'][0]['content']['parts'][0]['text']})
+        else:
+            # ¡AQUÍ ESTÁ LA CLAVE! Devolvemos el error CRUDO al chat para leerlo
+            error_msg = f"ERROR GOOGLE ({response.status_code}): {response.text}"
+            print(error_msg) # También lo imprimimos en consola por si acaso
+            return JSONResponse({"reply": error_msg})
 
     except Exception as e:
-        return JSONResponse({"reply": f"Error interno: {str(e)}"})
+        return JSONResponse({"reply": f"ERROR INTERNO PYTHON: {str(e)}"})
 
 # --- LÓGICA DE MERCADO ---
 def obtener_datos(symbol):
-    # Binance a veces bloquea requests sin User-Agent
+    # Quitamos headers customizados para evitar bloqueos por 'navegador falso'
     urls = [
         "https://api.binance.com/api/v3/klines",
         "https://api1.binance.com/api/v3/klines",
@@ -128,7 +103,7 @@ def obtener_datos(symbol):
     
     for url in urls:
         try:
-            r = requests.get(url, params=params, headers=HEADERS_BROWSER, timeout=3)
+            r = requests.get(url, params=params, timeout=3)
             if r.status_code == 200:
                 df = pd.DataFrame(r.json(), columns=['t', 'o', 'h', 'l', 'c', 'v', 'x', 'x', 'x', 'x', 'x', 'x'])
                 df['c'] = df['c'].astype(float)
@@ -234,7 +209,6 @@ def get_analisis(symbol: str = "BTCUSDT"):
     df = obtener_datos(symbol)
     
     if df.empty:
-        # Fallback para que el frontend no se rompa si Binance no responde
         cached = portfolios[symbol]
         return {
             "symbol": symbol,
