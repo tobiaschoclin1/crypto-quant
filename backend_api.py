@@ -24,7 +24,7 @@ app.add_middleware(
 # --- CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
-# Tu clave actual
+# Tu clave actual (que sabemos que funciona para autenticar)
 GEMINI_API_KEY = "AIzaSyAp1WURjJ03HhdB8NzkO1Rhre5-FqRtFIA" 
 # --------------------
 
@@ -37,6 +37,9 @@ portfolios = {
     for sym in SYMBOLS
 }
 market_data_cache = {} 
+
+# Variable global para recordar el modelo que funciona y no preguntar siempre
+valid_model_name = None
 
 def enviar_telegram(mensaje):
     try:
@@ -52,48 +55,79 @@ def read_root():
             return f.read()
     return "<h1>Error: No se encuentra index.html</h1>"
 
-# --- CHATBOT MODO DIAGNÓSTICO ---
+# --- CHATBOT CON AUTODESCUBRIMIENTO DE MODELOS ---
 @app.post("/chat")
 async def chat_with_ai(request: Request):
+    global valid_model_name
     try:
         body = await request.json()
         user_message = body.get("message", "")
         symbol = body.get("symbol", "BTCUSDT")
         api_key = GEMINI_API_KEY.strip()
 
-        # Recuperar contexto básico (si no hay, inventamos uno para probar conexión)
+        # Recuperar datos
         datos = market_data_cache.get(symbol, {})
         precio = datos.get("precio", 0)
+        decision = datos.get("decision", "NEUTRAL")
+        razones = datos.get("detalles", [])
+        pf = datos.get("portfolio", {})
 
         contexto = f"""
-        Eres un Trader. 
-        Precio {symbol}: ${precio}. 
+        Actúa como un Trader Experto en {symbol}.
+        DATOS: Precio ${precio:,.2f}, Señal {decision}, Razones: {', '.join(razones)}.
+        CARTERA: USDT ${pf.get('usdt', 0):,.2f}, Crypto {pf.get('coin', 0):,.4f}.
         Usuario: "{user_message}"
-        Responde corto.
+        Responde en 1 frase corta y útil.
         """
         
         payload = { "contents": [{ "parts": [{"text": contexto}] }] }
         headers = {"Content-Type": "application/json"}
         
-        # 1. Prueba Directa con v1beta (Estándar)
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        # 1. ¿Ya sabemos qué modelo usar?
+        if not valid_model_name:
+            # NO LO SABEMOS: Preguntamos a Google qué modelos hay disponibles para esta clave
+            print("Consultando lista de modelos a Google...")
+            url_list = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+            try:
+                resp_list = requests.get(url_list, timeout=5)
+                if resp_list.status_code == 200:
+                    data = resp_list.json()
+                    # Buscamos el primer modelo que sirva para generar texto ('generateContent')
+                    for model in data.get('models', []):
+                        methods = model.get('supportedGenerationMethods', [])
+                        if 'generateContent' in methods:
+                            # Encontramos uno! (ej: "models/gemini-1.0-pro-001")
+                            valid_model_name = model['name'].replace("models/", "")
+                            print(f"Modelo encontrado y seleccionado: {valid_model_name}")
+                            break
+                else:
+                    return JSONResponse({"reply": f"Error al listar modelos: {resp_list.status_code} {resp_list.text}"})
+            except Exception as e:
+                return JSONResponse({"reply": f"Error de red listando modelos: {str(e)}"})
         
-        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        # Si después de buscar seguimos sin modelo, fallamos
+        if not valid_model_name:
+            return JSONResponse({"reply": "Tu clave API es válida, pero Google dice que no tienes acceso a NINGÚN modelo de texto."})
+
+        # 2. Usamos el modelo encontrado
+        url_chat = f"https://generativelanguage.googleapis.com/v1beta/models/{valid_model_name}:generateContent?key={api_key}"
+        
+        response = requests.post(url_chat, headers=headers, json=payload, timeout=8)
         
         if response.status_code == 200:
             return JSONResponse({"reply": response.json()['candidates'][0]['content']['parts'][0]['text']})
+        elif response.status_code == 404:
+             # Si falla con 404, reseteamos el modelo guardado para buscar de nuevo la próxima vez
+             valid_model_name = None
+             return JSONResponse({"reply": f"El modelo {valid_model_name} falló (404). Intenta de nuevo para buscar otro."})
         else:
-            # ¡AQUÍ ESTÁ LA CLAVE! Devolvemos el error CRUDO al chat para leerlo
-            error_msg = f"ERROR GOOGLE ({response.status_code}): {response.text}"
-            print(error_msg) # También lo imprimimos en consola por si acaso
-            return JSONResponse({"reply": error_msg})
+            return JSONResponse({"reply": f"Error Google ({valid_model_name}): {response.text}"})
 
     except Exception as e:
-        return JSONResponse({"reply": f"ERROR INTERNO PYTHON: {str(e)}"})
+        return JSONResponse({"reply": f"Error interno: {str(e)}"})
 
 # --- LÓGICA DE MERCADO ---
 def obtener_datos(symbol):
-    # Quitamos headers customizados para evitar bloqueos por 'navegador falso'
     urls = [
         "https://api.binance.com/api/v3/klines",
         "https://api1.binance.com/api/v3/klines",
