@@ -31,13 +31,15 @@ SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
 INITIAL_CAPITAL = 1000.0
 BUY_AMOUNT = 200.0 
 
-# Cartera en Memoria
+# MÁSCARA PARA EVITAR BLOQUEOS DE BINANCE/GOOGLE
+HEADERS_BROWSER = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+}
+
 portfolios = {
     sym: {"usdt": INITIAL_CAPITAL, "coin": 0.0, "avg_price": 0.0, "trades": 0}
     for sym in SYMBOLS
 }
-
-last_signals = {sym: "NEUTRAL" for sym in SYMBOLS}
 market_data_cache = {} 
 
 def enviar_telegram(mensaje):
@@ -62,64 +64,78 @@ async def chat_with_ai(request: Request):
         symbol = body.get("symbol", "BTCUSDT")
         api_key = GEMINI_API_KEY.strip()
 
+        # Recuperar contexto
         datos = market_data_cache.get(symbol, {})
+        # Si no hay datos en caché, intentamos buscarlos rápido
+        if not datos:
+            print(f"Chat: Sin datos en caché para {symbol}, forzando actualización...")
+            datos = get_analisis(symbol)
+        
         precio = datos.get("precio", 0)
         decision = datos.get("decision", "NEUTRAL")
         razones = datos.get("detalles", [])
         pf = datos.get("portfolio", {})
 
         contexto = f"""
-        Eres un Asesor Financiero Crypto.
-        Analiza {symbol}.
-        DATOS TÉCNICOS:
-        - Precio: ${precio:,.4f}
+        Actúa como un Trader Senior experto en {symbol}.
+        DATOS TÉCNICOS EN VIVO:
+        - Precio Actual: ${precio:,.4f}
         - Señal Técnica: {decision}
-        - Indicadores: {', '.join(razones)}
-        MI CARTERA:
-        - USDT: ${pf.get('usdt', 0):,.2f}
-        - Crypto: {pf.get('coin', 0):,.4f} {symbol.replace('USDT','')}
-        Usuario: "{user_message}"
-        Responde corto, útil y humano.
+        - Factores: {', '.join(razones)}
+        
+        MI CARTERA ({symbol}):
+        - USDT Disponible: ${pf.get('usdt', 0):,.2f}
+        - Tenencia Crypto: {pf.get('coin', 0):,.4f}
+        - Precio Promedio Entrada: ${pf.get('avg_price', 0):,.2f}
+        
+        Usuario pregunta: "{user_message}"
+        Responde en 1 o 2 frases cortas, útiles y con personalidad.
         """
         
-        headers = {"Content-Type": "application/json"}
         payload = { "contents": [{ "parts": [{"text": contexto}] }] }
         
-        # Intentamos con Flash y luego Pro (Fallback)
+        # Intentamos con Flash y luego Pro
         modelos = ["gemini-1.5-flash", "gemini-pro"]
+        
         for m in modelos:
             try:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
-                r = requests.post(url, headers=headers, json=payload, timeout=5)
+                # Agregamos headers para que Google no rechace la petición python
+                r = requests.post(url, headers=HEADERS_BROWSER, json=payload, timeout=8)
+                
                 if r.status_code == 200:
                     return JSONResponse({"reply": r.json()['candidates'][0]['content']['parts'][0]['text']})
-            except: continue
+                else:
+                    print(f"Fallo modelo {m}: {r.status_code} - {r.text}")
+            except Exception as e: 
+                print(f"Excepción modelo {m}: {str(e)}")
+                continue
         
-        return JSONResponse({"reply": "Estoy analizando el mercado, dame un momento..."})
+        return JSONResponse({"reply": "Mis conexiones neuronales fallaron (Error de API Google). Intenta en unos segundos."})
 
     except Exception as e:
-        return JSONResponse({"reply": f"Error: {str(e)}"})
+        return JSONResponse({"reply": f"Error interno: {str(e)}"})
 
 # --- LÓGICA DE MERCADO ---
 def obtener_datos(symbol):
-    # Lista de endpoints para evitar bloqueos
+    # Binance a veces bloquea requests sin User-Agent
     urls = [
         "https://api.binance.com/api/v3/klines",
-        "https://api.binance.us/api/v3/klines",
-        "https://api1.binance.com/api/v3/klines"
+        "https://api1.binance.com/api/v3/klines",
+        "https://api.binance.us/api/v3/klines"
     ]
     params = {"symbol": symbol, "interval": "15m", "limit": 200}
     
     for url in urls:
         try:
-            r = requests.get(url, params=params, timeout=3)
+            r = requests.get(url, params=params, headers=HEADERS_BROWSER, timeout=3)
             if r.status_code == 200:
                 df = pd.DataFrame(r.json(), columns=['t', 'o', 'h', 'l', 'c', 'v', 'x', 'x', 'x', 'x', 'x', 'x'])
                 df['c'] = df['c'].astype(float)
                 df['v'] = df['v'].astype(float)
                 return df
         except: continue
-    return pd.DataFrame() # Retorna vacío si fallan todos
+    return pd.DataFrame()
 
 def calcular_indicadores(df):
     delta = df['c'].diff()
@@ -182,7 +198,6 @@ def ejecutar_estrategia(symbol, df):
     
     pf = portfolios[symbol]
     
-    # Compras parciales ($200)
     if decision == "COMPRA" and pf["usdt"] >= BUY_AMOUNT:
         cantidad = BUY_AMOUNT / precio
         total_coins = pf["coin"] + cantidad
@@ -192,7 +207,6 @@ def ejecutar_estrategia(symbol, df):
         pf["usdt"] -= BUY_AMOUNT
         enviar_telegram(f"🔵 *{symbol} COMPRA PARCIAL*\nPrecio: ${precio:,.2f}")
 
-    # Venta total
     elif decision == "VENTA" and pf["coin"] * precio > 10: 
         valor = pf["coin"] * precio
         ganancia = valor - (pf["coin"] * pf["avg_price"])
@@ -219,18 +233,17 @@ def get_analisis(symbol: str = "BTCUSDT"):
     
     df = obtener_datos(symbol)
     
-    # --- PROTECCIÓN CONTRA FALLOS ---
     if df.empty:
-        # Retornamos datos seguros para que el frontend NO se rompa
-        print(f"Error fetching {symbol}")
+        # Fallback para que el frontend no se rompa si Binance no responde
+        cached = portfolios[symbol]
         return {
             "symbol": symbol,
             "precio": 0,
             "score": 0,
-            "decision": "ERROR RED",
-            "detalles": ["Sin conexión con Binance"],
+            "decision": "OFFLINE",
+            "detalles": ["Error conexión Binance"],
             "grafico": "",
-            "portfolio": portfolios[symbol], # Esto permite ver la billetera aunque no haya precio
+            "portfolio": cached,
             "update_time": datetime.now().strftime("%H:%M:%S")
         }
     
@@ -248,5 +261,4 @@ def get_analisis(symbol: str = "BTCUSDT"):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    # Importante: host 0.0.0.0 para que Render lo vea
     uvicorn.run(app, host="0.0.0.0", port=port)

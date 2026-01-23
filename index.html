@@ -9,12 +9,10 @@
         .main-container { width: 100%; max-width: 1000px; display: grid; gap: 20px; grid-template-columns: 1fr; }
         @media (min-width: 768px) { .main-container { grid-template-columns: 2fr 1fr; } }
         
-        /* Nav */
         .nav-bar { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 20px; width: 100%; max-width: 1000px; }
-        .nav-btn { background: #1f2937; border: 1px solid #374151; color: #9ca3af; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; white-space: nowrap; }
+        .nav-btn { background: #1f2937; border: 1px solid #374151; color: #9ca3af; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; white-space: nowrap; transition: all 0.2s; }
         .nav-btn.active { background: #2563eb; color: white; border-color: #2563eb; }
 
-        /* Cards */
         .card { background: #111827; border: 1px solid #1f2937; border-radius: 16px; padding: 20px; }
         .header-info { text-align: center; margin-bottom: 20px; }
         .price { font-size: 48px; font-weight: 800; margin: 5px 0; }
@@ -31,9 +29,9 @@
 
         .chat-box { height: 400px; display: flex; flex-direction: column; background: #111827; border-radius: 16px; border: 1px solid #1f2937; overflow: hidden; }
         .chat-msgs { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; font-size: 13px; background: #0f172a; }
-        .msg { padding: 10px; border-radius: 10px; max-width: 85%; }
-        .msg.bot { background: #1e3a8a; align-self: flex-start; }
-        .msg.user { background: #374151; align-self: flex-end; }
+        .msg { padding: 10px; border-radius: 10px; max-width: 85%; line-height: 1.4; }
+        .msg.bot { background: #1e3a8a; align-self: flex-start; color: #bfdbfe; }
+        .msg.user { background: #374151; align-self: flex-end; color: white; }
         .chat-input-area { display: flex; padding: 10px; background: #1f2937; gap: 5px; }
         .chat-input { flex: 1; background: #374151; border: none; padding: 10px; border-radius: 6px; color: white; }
         .chat-btn { background: #2563eb; border: none; padding: 0 15px; border-radius: 6px; color: white; cursor: pointer; }
@@ -69,10 +67,10 @@
             <div class="chat-box">
                 <div style="padding:15px; border-bottom:1px solid #374151; font-weight:bold; color:#94a3b8">🤖 Asesor Quant</div>
                 <div class="chat-msgs" id="chatBody">
-                    <div class="msg bot">Hola. Selecciona una cripto arriba.</div>
+                    <div class="msg bot">Hola. Selecciona una moneda. Soy tu copiloto.</div>
                 </div>
                 <div class="chat-input-area">
-                    <input type="text" class="chat-input" id="chatInput" placeholder="Pregunta..." onkeypress="handleEnter(event)">
+                    <input type="text" class="chat-input" id="chatInput" placeholder="Pregunta algo..." onkeypress="handleEnter(event)">
                     <button class="chat-btn" onclick="sendMessage()">➤</button>
                 </div>
             </div>
@@ -87,7 +85,7 @@
             document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             document.getElementById('symbol-name').innerText = symbol.replace('USDT', ' / USDT');
-            document.getElementById('price').innerText = "---";
+            document.getElementById('price').innerText = "Cargando...";
             updateData();
         }
 
@@ -96,11 +94,10 @@
                 const res = await fetch(`/analisis?symbol=${currentSymbol}`);
                 const data = await res.json();
 
-                // PROTECCIÓN ANTI-CRASH: Si no hay precio, mostramos "Offline" pero no rompemos la app
                 if (!data.precio || data.precio === 0) {
                     document.getElementById('price').innerText = "Offline";
                     document.getElementById('decision').innerText = "ERROR RED";
-                    document.getElementById('last-update').innerText = "Reintentando conexión...";
+                    document.getElementById('last-update').innerText = "Reintentando...";
                 } else {
                     document.getElementById('price').innerText = "$" + data.precio.toLocaleString('en-US', {minimumFractionDigits: 2});
                     document.getElementById('last-update').innerText = "Actualizado: " + data.update_time;
@@ -126,7 +123,7 @@
                     });
                 }
 
-                // BILLETERA (Siempre visible aunque falle el precio)
+                // BILLETERA
                 const wDiv = document.getElementById('wallet-container');
                 const pf = data.portfolio;
                 if (pf) {
@@ -154,6 +151,7 @@
         }
 
         function handleEnter(e) { if(e.key === 'Enter') sendMessage(); }
+        
         async function sendMessage() {
             const input = document.getElementById('chatInput');
             const txt = input.value.trim();
@@ -162,6 +160,10 @@
             const chat = document.getElementById('chatBody');
             chat.innerHTML += `<div class="msg user">${txt}</div>`;
             input.value = '';
+            
+            // Mensaje de carga temporal
+            const loadingId = 'loading-' + Date.now();
+            chat.innerHTML += `<div class="msg bot" id="${loadingId}">Pensando... 🤔</div>`;
             chat.scrollTop = chat.scrollHeight;
 
             try {
@@ -171,8 +173,13 @@
                     body: JSON.stringify({ message: txt, symbol: currentSymbol })
                 });
                 const d = await res.json();
-                chat.innerHTML += `<div class="msg bot">${d.reply}</div>`;
-            } catch(e) { chat.innerHTML += `<div class="msg bot">Error conexión IA.</div>`; }
+                
+                // Reemplazamos el mensaje de carga
+                document.getElementById(loadingId).innerText = d.reply;
+                
+            } catch(e) { 
+                document.getElementById(loadingId).innerText = "Error: No pude conectar con la IA."; 
+            }
             chat.scrollTop = chat.scrollHeight;
         }
 
