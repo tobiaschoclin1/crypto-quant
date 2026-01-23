@@ -24,7 +24,7 @@ app.add_middleware(
 # --- CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
-# Tu clave actual
+# Tu clave (que ya sabemos que funciona)
 GEMINI_API_KEY = "AIzaSyAp1WURjJ03HhdB8NzkO1Rhre5-FqRtFIA" 
 # --------------------
 
@@ -49,7 +49,7 @@ def read_root():
             return f.read()
     return "<h1>Error: No se encuentra index.html</h1>"
 
-# --- CHATBOT CORREGIDO (SIN ERROR 'm') ---
+# --- CHATBOT "HUMANIZADO" ---
 @app.post("/chat")
 async def chat_with_ai(request: Request):
     try:
@@ -57,14 +57,21 @@ async def chat_with_ai(request: Request):
         user_message = body.get("message", "")
         api_key = GEMINI_API_KEY.strip()
 
+        # AQUÍ ESTÁ EL CAMBIO DE PERSONALIDAD
         contexto = f"""
-        Eres un Trader Algorítmico Senior. Responde en 1 frase corta.
-        DATOS:
-        - Precio: ${ultimo_estado['precio']:,.2f}
-        - Decisión: {ultimo_estado['decision']}
-        - Score: {ultimo_estado['score']}/10
-        - Razones: {', '.join(ultimo_estado['razones'])}
-        Usuario: "{user_message}"
+        Actúa como un Analista de Trading experto pero con un tono humano, cercano y pedagógico.
+        Evita el lenguaje excesivamente técnico o robótico. Si usas términos técnicos, explícalos brevemente.
+        Usa analogías sencillas si es necesario.
+        Tu objetivo es que el usuario entienda el "por qué" de la situación, no solo darle datos.
+        Desarrolla tu respuesta en 2 o 3 oraciones claras.
+
+        DATOS TÉCNICOS EN TIEMPO REAL:
+        - Precio Bitcoin: ${ultimo_estado['precio']:,.2f}
+        - Decisión del Algoritmo: {ultimo_estado['decision']}
+        - Puntuación de Fuerza (Score): {ultimo_estado['score']}/10
+        - Factores Clave: {', '.join(ultimo_estado['razones'])}
+        
+        Pregunta del Usuario: "{user_message}"
         """
 
         headers = {"Content-Type": "application/json"}
@@ -78,39 +85,28 @@ async def chat_with_ai(request: Request):
             if response.status_code == 200:
                 return JSONResponse({"reply": response.json()['candidates'][0]['content']['parts'][0]['text']})
         except:
-            pass # Si falla, pasamos al diagnóstico
+            pass
 
-        # 2. MODO DIAGNÓSTICO Y AUTOCORRECCIÓN
-        # Pedimos a Google la lista de modelos habilitados para ESTA clave
+        # 2. Respaldo (por si acaso)
         url_lista = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
         resp_lista = requests.get(url_lista, timeout=5)
         
         if resp_lista.status_code == 200:
             data = resp_lista.json()
             if 'models' in data:
-                # Iteramos correctamente sobre los objetos del modelo
                 for model_obj in data['models']:
                     nombre = model_obj['name'].replace('models/', '')
                     metodos = model_obj.get('supportedGenerationMethods', [])
-                    
-                    # Si el modelo sirve para generar texto, lo probamos
                     if 'generateContent' in metodos:
                          url_reintento = f"https://generativelanguage.googleapis.com/v1beta/models/{nombre}:generateContent?key={api_key}"
                          resp_reintento = requests.post(url_reintento, headers=headers, json=payload, timeout=5)
-                         
                          if resp_reintento.status_code == 200:
                              return JSONResponse({"reply": resp_reintento.json()['candidates'][0]['content']['parts'][0]['text']})
-                
-                # Si llegamos aquí, hay modelos pero ninguno funcionó
-                nombres_disponibles = [m['name'] for m in data['models']]
-                return JSONResponse({"reply": f"Error. Tu clave ve estos modelos pero fallan: {', '.join(nombres_disponibles[:3])}"})
-            else:
-                return JSONResponse({"reply": "Error: Tu clave es válida pero Google dice que no tienes modelos asignados."})
         
-        return JSONResponse({"reply": f"Error Fatal: Tu clave fue rechazada por Google (Código {resp_lista.status_code})."})
+        return JSONResponse({"reply": "Lo siento, mi cerebro de IA está teniendo un pequeño cortocircuito con Google. Intenta de nuevo."})
 
     except Exception as e:
-        return JSONResponse({"reply": f"Error interno del servidor: {str(e)}"})
+        return JSONResponse({"reply": f"Error interno: {str(e)}"})
 
 # --- FUNCIONES MATEMÁTICAS ---
 def obtener_datos(limit=1000):
