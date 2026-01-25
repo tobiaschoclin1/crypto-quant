@@ -36,8 +36,6 @@ market_data_cache = {}
 valid_model_name = None
 STOP_LOSS_PCT = 0.01 
 TAKE_PROFIT_PCT = 0.015
-
-# --- EL DISFRAZ ANTI-BLOQUEO ---
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
@@ -59,37 +57,46 @@ async def registrar_trade(request: Request):
     data = await request.json()
     symbol = data.get("symbol")
     action = data.get("action")
-    amount = float(data.get("amount", 0))
+    usdt_amount = float(data.get("usdt_amount", 0)) # AHORA ES EN DÓLARES
     price = float(data.get("price", 0))
     
     if symbol not in real_portfolio: return {"error": "Moneda no válida"}
+    if price == 0: return {"error": "Precio inválido"}
+
     pf = real_portfolio[symbol]
-    total_usd = amount * price
+    
+    # Calculamos cuánta crypto es
+    crypto_amount = usdt_amount / price
     
     if action == "COMPRA":
-        total_coins = pf["coin"] + amount
-        total_cost = (pf["coin"] * pf["avg_price"]) + total_usd
+        if GLOBAL_USDT < usdt_amount: return {"error": "Saldo insuficiente"}
+        
+        total_coins = pf["coin"] + crypto_amount
+        total_cost = (pf["coin"] * pf["avg_price"]) + usdt_amount
         pf["avg_price"] = total_cost / total_coins if total_coins > 0 else price
-        pf["coin"] += amount
-        GLOBAL_USDT -= total_usd
+        pf["coin"] += crypto_amount
+        GLOBAL_USDT -= usdt_amount
+        
     elif action == "VENTA":
-        pf["coin"] -= amount
+        # Para venta, usdt_amount es cuanto queremos recibir en dolares
+        # Verificamos si tenemos esa cantidad en crypto
+        if pf["coin"] * price < usdt_amount: return {"error": "No tienes suficiente crypto"}
+        
+        pf["coin"] -= crypto_amount
         if pf["coin"] < 0: pf["coin"] = 0
-        GLOBAL_USDT += total_usd
-        if pf["coin"] == 0: pf["avg_price"] = 0.0
+        GLOBAL_USDT += usdt_amount
+        if pf["coin"] <= 0.000001: pf["avg_price"] = 0.0 # Reset si vendimos todo
         
     for s in SYMBOLS: real_portfolio[s]["usdt"] = GLOBAL_USDT
     return {"status": "OK", "nuevo_saldo": GLOBAL_USDT}
 
 def obtener_datos(symbol):
-    # Intentamos varias URLs con Headers para evitar bloqueos
     urls = [
         "https://api.binance.com/api/v3/klines",
         "https://api1.binance.com/api/v3/klines",
         "https://api.binance.us/api/v3/klines"
     ]
     params = {"symbol": symbol, "interval": "1m", "limit": 100}
-    
     for url in urls:
         try:
             r = requests.get(url, params=params, headers=HEADERS, timeout=3)
@@ -138,14 +145,8 @@ def get_analisis(symbol: str = "BTCUSDT"):
     if symbol not in SYMBOLS: symbol = "BTCUSDT"
     
     df = obtener_datos(symbol)
-    
-    # Manejo de error explícito
     if df.empty: 
-        return {
-            "error": True, 
-            "mensaje": "Sin conexión Binance", 
-            "portfolio": real_portfolio[symbol]
-        }
+        return {"error": True, "mensaje": "Sin conexión", "portfolio": real_portfolio[symbol]}
     
     df = calcular_indicadores(df)
     current = df.iloc[-1]
@@ -155,7 +156,6 @@ def get_analisis(symbol: str = "BTCUSDT"):
     signal = "NEUTRAL"
     reasons = []
     
-    # Gestión Riesgo
     if pf["coin"] > 0 and pf["avg_price"] > 0:
         pnl = (precio - pf["avg_price"]) / pf["avg_price"]
         if pnl <= -STOP_LOSS_PCT:
@@ -165,7 +165,6 @@ def get_analisis(symbol: str = "BTCUSDT"):
             signal = "VENTA FUERTE"
             reasons.append(f"💰 TAKE PROFIT ({pnl*100:.2f}%)")
             
-    # Estrategia Técnica
     if signal == "NEUTRAL":
         if precio <= current['lower'] and current['rsi'] < 30:
             if pf["coin"] == 0:
@@ -212,8 +211,7 @@ async def chat_with_ai(request: Request):
 @app.get("/", response_class=HTMLResponse)
 def read_root():
     if os.path.exists("index.html"):
-        with open("index.html", "r", encoding="utf-8") as f:
-            return f.read()
+        with open("index.html", "r", encoding="utf-8") as f: return f.read()
     return "<h1>Error: No index.html</h1>"
 
 if __name__ == "__main__":

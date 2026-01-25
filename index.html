@@ -3,50 +3,61 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trading Workstation</title>
+    <title>Trading Radar</title>
     <style>
-        :root { --bg: #0f172a; --card: #1e293b; --text: #e2e8f0; --accent: #3b82f6; --green: #22c55e; --red: #ef4444; }
-        body { background-color: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
-        .container { width: 100%; max-width: 1200px; display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
-        @media(max-width:800px){ .container{ grid-template-columns: 1fr; } }
+        :root { --bg: #0f172a; --card: #1e293b; --text: #e2e8f0; --accent: #3b82f6; --green: #22c55e; --red: #ef4444; --yellow: #eab308; }
+        body { background-color: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; margin: 0; padding: 15px; display: flex; flex-direction: column; align-items: center; }
+        .container { width: 100%; max-width: 1200px; display: flex; flex-direction: column; gap: 20px; }
 
-        /* HEADER */
-        .top-bar { width: 100%; max-width: 1200px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; background: var(--card); padding: 15px; border-radius: 10px; box-sizing: border-box; }
-        .balance-display { font-size: 24px; font-weight: bold; color: var(--green); }
-        .btn-main { background: var(--accent); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; }
-        .btn-main:hover { opacity: 0.9; }
+        /* RADAR GRID (Dashboard) */
+        .radar-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); 
+            gap: 10px; width: 100%; 
+        }
+        .radar-card { 
+            background: var(--card); padding: 15px; border-radius: 10px; border: 1px solid #334155; 
+            cursor: pointer; transition: 0.2s; text-align: center; position: relative; overflow: hidden;
+        }
+        .radar-card:hover { transform: translateY(-2px); border-color: var(--accent); }
+        .radar-card.active { border-color: var(--accent); background: #1e293b; box-shadow: 0 0 15px rgba(59, 130, 246, 0.2); }
+        
+        .r-sym { font-size: 14px; font-weight: bold; color: #94a3b8; }
+        .r-price { font-size: 16px; font-weight: 800; margin: 5px 0; }
+        .r-signal { font-size: 11px; font-weight: bold; padding: 3px 8px; border-radius: 4px; display: inline-block; }
+        
+        /* Signal Colors */
+        .sig-buy { background: rgba(34, 197, 94, 0.2); color: var(--green); border: 1px solid var(--green); }
+        .sig-sell { background: rgba(239, 68, 68, 0.2); color: var(--red); border: 1px solid var(--red); }
+        .sig-neutral { background: rgba(148, 163, 184, 0.2); color: #94a3b8; }
 
-        /* NAV */
-        .nav-bar { display: flex; gap: 10px; margin-bottom: 20px; overflow-x: auto; width: 100%; max-width: 1200px; }
-        .nav-btn { background: var(--card); border: 1px solid #334155; color: #94a3b8; padding: 10px 20px; border-radius: 8px; cursor: pointer; transition: 0.2s; }
-        .nav-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+        /* MAIN LAYOUT */
+        .work-area { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+        @media(max-width:800px){ .work-area{ grid-template-columns: 1fr; } }
 
-        /* PANELS */
         .panel { background: var(--card); border-radius: 12px; padding: 20px; border: 1px solid #334155; display: flex; flex-direction: column; gap: 15px; }
         
-        .price-box { text-align: center; }
-        .price-val { font-size: 42px; font-weight: 800; }
-        .signal-badge { display: inline-block; padding: 8px 16px; border-radius: 6px; font-weight: bold; font-size: 18px; margin-top: 5px; }
-        
-        .chart-img { width: 100%; height: 250px; object-fit: contain; background: #020617; border-radius: 8px; }
+        .header-row { display: flex; justify-content: space-between; align-items: center; background: #1e293b; padding: 10px 20px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #334155; }
+        .balance-label { font-size: 12px; color: #94a3b8; }
+        .balance-val { font-size: 24px; font-weight: bold; color: var(--green); }
 
-        /* OPERATIONS PANEL */
-        .ops-panel { background: #0f172a; border: 1px solid #334155; padding: 15px; border-radius: 8px; }
-        .ops-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        .input-group { display: flex; gap: 10px; }
-        .op-input { background: #1e293b; border: 1px solid #475569; color: white; padding: 8px; border-radius: 4px; width: 100px; }
-        .btn-buy { background: var(--green); color: black; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
-        .btn-sell { background: var(--red); color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        /* OPERATIONS */
+        .input-group { display: flex; gap: 10px; margin-top: 10px; }
+        .op-input { background: #0f172a; border: 1px solid #475569; color: white; padding: 10px; border-radius: 6px; width: 100%; font-size: 16px; }
+        .btn-buy { background: var(--green); color: black; border: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; flex: 1; }
+        .btn-sell { background: var(--red); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; flex: 1; }
+
+        .chart-img { width: 100%; height: 300px; object-fit: contain; background: #020617; border-radius: 8px; }
 
         /* CHAT */
-        .chat-box { height: 350px; display: flex; flex-direction: column; background: #0f172a; border-radius: 8px; overflow: hidden; border: 1px solid #334155; }
+        .chat-box { height: 400px; display: flex; flex-direction: column; background: #0f172a; border-radius: 8px; overflow: hidden; border: 1px solid #334155; }
         .chat-msgs { flex: 1; padding: 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
         .msg { padding: 8px 12px; border-radius: 8px; max-width: 85%; }
         .msg.bot { background: #1e3a8a; align-self: flex-start; color: #bfdbfe; }
         .msg.user { background: #334155; align-self: flex-end; }
         .chat-input { background: #1e293b; border: none; padding: 12px; color: white; width: 100%; box-sizing: border-box; outline: none; border-top: 1px solid #334155; }
 
-        /* MODAL INICIO */
+        /* MODAL */
         .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; z-index: 100; }
         .modal-content { background: var(--card); padding: 30px; border-radius: 12px; width: 300px; text-align: center; }
         .modal-input { width: 100%; padding: 10px; margin: 15px 0; background: #0f172a; border: 1px solid #475569; color: white; border-radius: 6px; font-size: 18px; text-align: center; }
@@ -56,78 +67,67 @@
 
     <div id="startModal" class="modal">
         <div class="modal-content">
-            <h2>💼 Iniciar Jornada</h2>
-            <p>Ingresa tu saldo inicial en USDT</p>
+            <h2>🚀 Iniciar Turno</h2>
+            <p>Saldo inicial (USDT)</p>
             <input type="number" id="startBalance" class="modal-input" value="1000">
-            <button class="btn-main" onclick="startDay()">Abrir Sistema</button>
+            <button class="btn-buy" style="width:100%" onclick="startDay()">ABRIR SISTEMA</button>
         </div>
-    </div>
-
-    <div class="top-bar">
-        <div>
-            <span style="color:#94a3b8; font-size:12px">CAJA USDT</span><br>
-            <span id="globalBalance" class="balance-display">$0.00</span>
-        </div>
-        <button class="btn-main" style="background:var(--red)" onclick="alert('Vende todo en Binance. Fin del día.')">Cerrar Jornada</button>
-    </div>
-
-    <div class="nav-bar">
-        <button class="nav-btn active" onclick="changeSymbol('BTCUSDT', this)">Bitcoin</button>
-        <button class="nav-btn" onclick="changeSymbol('ETHUSDT', this)">Ethereum</button>
-        <button class="nav-btn" onclick="changeSymbol('SOLUSDT', this)">Solana</button>
-        <button class="nav-btn" onclick="changeSymbol('BNBUSDT', this)">Binance</button>
-        <button class="nav-btn" onclick="changeSymbol('ADAUSDT', this)">Cardano</button>
     </div>
 
     <div class="container">
-        <div class="panel">
-            <div class="price-box">
-                <div style="color:#94a3b8; font-weight:bold" id="symTitle">BTC / USDT</div>
-                <div class="price-val" id="price">---</div>
-                <div class="signal-badge" id="signal">ESPERANDO...</div>
-                <div id="reasons" style="font-size:12px; color:#94a3b8; margin-top:5px"></div>
+        <div class="header-row">
+            <div>
+                <div class="balance-label">CAJA DISPONIBLE</div>
+                <div class="balance-val" id="globalBalance">$0.00</div>
             </div>
-
-            <img id="chart" class="chart-img" src="" alt="Gráfico">
-
-            <div class="ops-panel">
-                <div class="ops-row">
-                    <div>
-                        <div style="font-size:12px; color:#94a3b8">POSICIÓN ACTUAL</div>
-                        <div style="font-size:18px; font-weight:bold; color:#fbbf24" id="myPos">0.0000</div>
-                    </div>
-                    <div style="text-align:right">
-                        <div style="font-size:12px; color:#94a3b8">VALOR USD</div>
-                        <div style="font-size:18px; font-weight:bold" id="myPosVal">$0.00</div>
-                    </div>
-                </div>
-
-                <hr style="border-color:#334155; margin:15px 0">
-                <div style="font-size:13px; margin-bottom:10px; color:#94a3b8">REGISTRAR OPERACIÓN REALIZADA</div>
-                
-                <div class="input-group">
-                    <input type="number" id="tradeAmount" class="op-input" placeholder="Cant.">
-                    <input type="number" id="tradePrice" class="op-input" placeholder="Precio">
-                    <button class="btn-buy" onclick="registerTrade('COMPRA')">COMPRÉ</button>
-                    <button class="btn-sell" onclick="registerTrade('VENTA')">VENDÍ</button>
-                </div>
-            </div>
+            <button onclick="alert('Vende todo manual!')" style="background:transparent; border:1px solid #ef4444; color:#ef4444; padding:5px 10px; border-radius:4px; cursor:pointer">Cerrar Todo</button>
         </div>
 
-        <div class="panel">
-            <div style="font-weight:bold; color:#94a3b8; margin-bottom:10px">🤖 Asesor IA</div>
-            <div class="chat-box">
-                <div class="chat-msgs" id="chatBody">
-                    <div class="msg bot">Sistema listo. Esperando datos de mercado...</div>
+        <div class="radar-grid" id="radarGrid">
+            <div class="radar-card">Cargando...</div>
+        </div>
+
+        <div class="work-area">
+            <div class="panel">
+                <div style="display:flex; justify-content:space-between; align-items:center">
+                    <h2 id="chartTitle" style="margin:0">BTC / USDT</h2>
+                    <span id="mainSignal" class="r-signal sig-neutral">ESPERANDO</span>
                 </div>
-                <input type="text" class="chat-input" id="chatInput" placeholder="Consultar al asesor..." onkeypress="handleEnter(event)">
+                
+                <img id="chart" class="chart-img" src="" alt="Gráfico">
+
+                <div style="background:#0f172a; padding:15px; border-radius:8px; border:1px solid #334155">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:12px; color:#94a3b8">
+                        <span>MI POSICIÓN: <span id="myPos" style="color:#fbbf24; font-weight:bold">0.00</span></span>
+                        <span>VALOR: <span id="myPosVal">$0.00</span></span>
+                    </div>
+                    
+                    <div style="font-size:12px; margin-top:10px; color:#e2e8f0">OPERAR (EN USDT)</div>
+                    <div class="input-group">
+                        <input type="number" id="tradeUSDT" class="op-input" placeholder="Ej: 100 USDT">
+                        <button class="btn-buy" onclick="registerTrade('COMPRA')">COMPRAR</button>
+                        <button class="btn-sell" onclick="registerTrade('VENTA')">VENDER</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div style="font-weight:bold; color:#94a3b8">Asesor Quant</div>
+                <div class="chat-box">
+                    <div class="chat-msgs" id="chatBody">
+                        <div class="msg bot">Sistema online. Revisa el radar.</div>
+                    </div>
+                    <input type="text" class="chat-input" id="chatInput" placeholder="Consultar..." onkeypress="handleEnter(event)">
+                </div>
             </div>
         </div>
     </div>
 
     <script>
+        const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"];
         let currentSymbol = 'BTCUSDT';
         let currentPrice = 0;
+        let marketData = {}; // Cache local
 
         async function startDay() {
             const bal = document.getElementById('startBalance').value;
@@ -137,71 +137,94 @@
                 body: JSON.stringify({ usdt: bal })
             });
             document.getElementById('startModal').style.display = 'none';
-            updateData();
+            initRadar();
+            updateLoop();
         }
 
-        function changeSymbol(sym, btn) {
+        function initRadar() {
+            const grid = document.getElementById('radarGrid');
+            grid.innerHTML = '';
+            SYMBOLS.forEach(sym => {
+                const div = document.createElement('div');
+                div.className = 'radar-card';
+                div.id = 'card-'+sym;
+                div.onclick = () => selectSymbol(sym);
+                div.innerHTML = `
+                    <div class="r-sym">${sym.replace('USDT','')}</div>
+                    <div class="r-price" id="p-${sym}">---</div>
+                    <div class="r-signal sig-neutral" id="s-${sym}">...</div>
+                `;
+                grid.appendChild(div);
+            });
+            selectSymbol('BTCUSDT'); // Default
+        }
+
+        function selectSymbol(sym) {
             currentSymbol = sym;
-            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            document.getElementById('symTitle').innerText = sym.replace('USDT', ' / USDT');
-            document.getElementById('price').innerText = "---";
-            // Limpiar chat visualmente (o cargar historial si quisieras)
-            document.getElementById('chatBody').innerHTML = '<div class="msg bot">Cambiando vista a '+sym+'...</div>';
-            updateData();
+            // Visual Active State
+            document.querySelectorAll('.radar-card').forEach(c => c.classList.remove('active'));
+            document.getElementById('card-'+sym).classList.add('active');
+            
+            // Update Main View
+            document.getElementById('chartTitle').innerText = sym.replace('USDT', ' / USDT');
+            document.getElementById('tradeUSDT').value = '';
+            // Render data if available
+            if(marketData[sym]) renderMainView(marketData[sym]);
         }
 
- async function updateData() {
-            try {
-                const res = await fetch(`/analisis?symbol=${currentSymbol}`);
-                const data = await res.json();
-                
-                // MANEJO DE ERROR (Si Binance bloquea)
-                if(data.error) {
-                    document.getElementById('signal').innerText = "OFFLINE";
-                    document.getElementById('signal').style.backgroundColor = "#ef4444";
-                    document.getElementById('signal').style.color = "white";
-                    document.getElementById('reasons').innerText = "Binance no responde. Reintentando...";
-                    return; 
-                }
+        async function updateLoop() {
+            // Actualizamos TODAS las monedas una por una
+            for (const sym of SYMBOLS) {
+                try {
+                    const res = await fetch(`/analisis?symbol=${sym}`);
+                    const data = await res.json();
+                    if(!data.error) {
+                        marketData[sym] = data;
+                        updateRadarCard(sym, data);
+                        if(sym === currentSymbol) renderMainView(data);
+                    }
+                } catch(e) {}
+            }
+            setTimeout(updateLoop, 5000);
+        }
 
-                // SI TODO VA BIEN...
-                currentPrice = data.precio;
-                document.getElementById('price').innerText = "$" + currentPrice.toLocaleString('en-US', {minimumFractionDigits: 2});
-                
-                // Señal
-                const sigEl = document.getElementById('signal');
-                sigEl.innerText = data.decision;
-                let c = "#64748b";
-                if(data.decision.includes("COMPRA")) c = "#22c55e";
-                if(data.decision.includes("VENTA")) c = "#ef4444";
-                sigEl.style.backgroundColor = c + "20";
-                sigEl.style.color = c;
-                
-                document.getElementById('reasons').innerText = data.detalles.join(" | ");
-                if(data.grafico) document.getElementById('chart').src = data.grafico;
+        function updateRadarCard(sym, data) {
+            const pEl = document.getElementById(`p-${sym}`);
+            const sEl = document.getElementById(`s-${sym}`);
+            
+            pEl.innerText = "$" + data.precio.toLocaleString('en-US');
+            
+            let sigText = "NEUTRAL";
+            let sigClass = "sig-neutral";
+            
+            if(data.decision.includes("COMPRA")) { sigText = "COMPRA"; sigClass = "sig-buy"; }
+            if(data.decision.includes("VENTA")) { sigText = "VENTA"; sigClass = "sig-sell"; }
+            
+            sEl.innerText = sigText;
+            sEl.className = `r-signal ${sigClass}`;
+        }
 
-                // Datos de Cartera
-                const pf = data.portfolio;
-                // Actualizamos saldo global de la UI (Caja USDT)
-                // (Nota: el backend nos manda el pf individual, asumimos que el USDT es el global sincro)
-                document.getElementById('globalBalance').innerText = "$" + pf.usdt.toLocaleString('en-US', {minimumFractionDigits: 2});
-                
-                // Posición Individual
-                document.getElementById('myPos').innerText = pf.coin.toFixed(5);
-                const posVal = pf.coin * currentPrice;
-                document.getElementById('myPosVal').innerText = "$" + posVal.toLocaleString('en-US', {minimumFractionDigits: 2});
-                
-                // Prellenar inputs para facilitar
-                document.getElementById('tradePrice').value = currentPrice;
+        function renderMainView(data) {
+            currentPrice = data.precio;
+            document.getElementById('globalBalance').innerText = "$" + data.portfolio.usdt.toLocaleString('en-US', {minimumFractionDigits: 2});
+            
+            // Chart
+            if(data.grafico) document.getElementById('chart').src = data.grafico;
+            
+            // Main Signal Badge
+            const ms = document.getElementById('mainSignal');
+            ms.innerText = data.decision;
+            ms.className = "r-signal " + (data.decision.includes("COMPRA") ? "sig-buy" : (data.decision.includes("VENTA") ? "sig-sell" : "sig-neutral"));
 
-            } catch(e) { console.error(e); }
+            // My Position
+            document.getElementById('myPos').innerText = data.portfolio.coin.toFixed(4);
+            const val = data.portfolio.coin * data.precio;
+            document.getElementById('myPosVal').innerText = "$" + val.toLocaleString('en-US', {minimumFractionDigits: 2});
         }
 
         async function registerTrade(action) {
-            const amt = document.getElementById('tradeAmount').value;
-            const prc = document.getElementById('tradePrice').value;
-            if(!amt || !prc) return alert("Ingresa cantidad y precio real");
+            const amt = document.getElementById('tradeUSDT').value;
+            if(!amt) return alert("Ingresa monto en USDT");
 
             const res = await fetch('/registrar_trade', {
                 method: 'POST',
@@ -209,15 +232,19 @@
                 body: JSON.stringify({
                     symbol: currentSymbol,
                     action: action,
-                    amount: amt,
-                    price: prc
+                    usdt_amount: amt,
+                    price: currentPrice
                 })
             });
             const d = await res.json();
-            if(d.status) {
-                alert("Operación registrada correctamente.");
-                document.getElementById('tradeAmount').value = "";
-                updateData(); // Refrescar saldos
+            if(d.error) alert(d.error);
+            else {
+                alert("Operación Exitosa!");
+                document.getElementById('tradeUSDT').value = "";
+                // Force instant update
+                const refresh = await fetch(`/analisis?symbol=${currentSymbol}`);
+                const rdata = await refresh.json();
+                renderMainView(rdata);
             }
         }
 
@@ -241,9 +268,6 @@
             box.innerHTML += `<div class="msg bot">${d.reply}</div>`;
             box.scrollTop = box.scrollHeight;
         }
-
-        setInterval(updateData, 5000);
-        // No llamamos updateData al inicio para esperar al Modal
     </script>
 </body>
 </html>
