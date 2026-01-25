@@ -5,11 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trading Radar</title>
     <style>
-        :root { --bg: #0f172a; --card: #1e293b; --text: #e2e8f0; --accent: #3b82f6; --green: #22c55e; --red: #ef4444; --yellow: #eab308; }
+        :root { --bg: #0f172a; --card: #1e293b; --text: #e2e8f0; --accent: #3b82f6; --green: #22c55e; --red: #ef4444; }
         body { background-color: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; margin: 0; padding: 15px; display: flex; flex-direction: column; align-items: center; }
         .container { width: 100%; max-width: 1200px; display: flex; flex-direction: column; gap: 20px; }
 
-        /* RADAR GRID (Dashboard) */
         .radar-grid { 
             display: grid; 
             grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); 
@@ -19,37 +18,29 @@
             background: var(--card); padding: 15px; border-radius: 10px; border: 1px solid #334155; 
             cursor: pointer; transition: 0.2s; text-align: center; position: relative; overflow: hidden;
         }
-        .radar-card:hover { transform: translateY(-2px); border-color: var(--accent); }
         .radar-card.active { border-color: var(--accent); background: #1e293b; box-shadow: 0 0 15px rgba(59, 130, 246, 0.2); }
-        
         .r-sym { font-size: 14px; font-weight: bold; color: #94a3b8; }
         .r-price { font-size: 16px; font-weight: 800; margin: 5px 0; }
         .r-signal { font-size: 11px; font-weight: bold; padding: 3px 8px; border-radius: 4px; display: inline-block; }
         
-        /* Signal Colors */
         .sig-buy { background: rgba(34, 197, 94, 0.2); color: var(--green); border: 1px solid var(--green); }
         .sig-sell { background: rgba(239, 68, 68, 0.2); color: var(--red); border: 1px solid var(--red); }
         .sig-neutral { background: rgba(148, 163, 184, 0.2); color: #94a3b8; }
 
-        /* MAIN LAYOUT */
         .work-area { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
         @media(max-width:800px){ .work-area{ grid-template-columns: 1fr; } }
 
         .panel { background: var(--card); border-radius: 12px; padding: 20px; border: 1px solid #334155; display: flex; flex-direction: column; gap: 15px; }
         
         .header-row { display: flex; justify-content: space-between; align-items: center; background: #1e293b; padding: 10px 20px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #334155; }
-        .balance-label { font-size: 12px; color: #94a3b8; }
         .balance-val { font-size: 24px; font-weight: bold; color: var(--green); }
 
-        /* OPERATIONS */
         .input-group { display: flex; gap: 10px; margin-top: 10px; }
-        .op-input { background: #0f172a; border: 1px solid #475569; color: white; padding: 10px; border-radius: 6px; width: 100%; font-size: 16px; }
+        .op-input { background: #0f172a; border: 1px solid #475569; color: white; padding: 10px; border-radius: 6px; width: 100%; font-size: 14px; }
         .btn-buy { background: var(--green); color: black; border: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; flex: 1; }
         .btn-sell { background: var(--red); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; flex: 1; }
-
         .chart-img { width: 100%; height: 300px; object-fit: contain; background: #020617; border-radius: 8px; }
 
-        /* CHAT */
         .chat-box { height: 400px; display: flex; flex-direction: column; background: #0f172a; border-radius: 8px; overflow: hidden; border: 1px solid #334155; }
         .chat-msgs { flex: 1; padding: 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
         .msg { padding: 8px 12px; border-radius: 8px; max-width: 85%; }
@@ -57,10 +48,11 @@
         .msg.user { background: #334155; align-self: flex-end; }
         .chat-input { background: #1e293b; border: none; padding: 12px; color: white; width: 100%; box-sizing: border-box; outline: none; border-top: 1px solid #334155; }
 
-        /* MODAL */
         .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; z-index: 100; }
         .modal-content { background: var(--card); padding: 30px; border-radius: 12px; width: 300px; text-align: center; }
         .modal-input { width: 100%; padding: 10px; margin: 15px 0; background: #0f172a; border: 1px solid #475569; color: white; border-radius: 6px; font-size: 18px; text-align: center; }
+        
+        .refresh-btn { background:transparent; border:none; color:#3b82f6; cursor:pointer; font-size:20px; }
     </style>
 </head>
 <body>
@@ -77,20 +69,21 @@
     <div class="container">
         <div class="header-row">
             <div>
-                <div class="balance-label">CAJA DISPONIBLE</div>
+                <div style="font-size:12px; color:#94a3b8">CAJA DISPONIBLE</div>
                 <div class="balance-val" id="globalBalance">$0.00</div>
             </div>
             <button onclick="alert('Vende todo manual!')" style="background:transparent; border:1px solid #ef4444; color:#ef4444; padding:5px 10px; border-radius:4px; cursor:pointer">Cerrar Todo</button>
         </div>
 
-        <div class="radar-grid" id="radarGrid">
-            <div class="radar-card">Cargando...</div>
-        </div>
+        <div class="radar-grid" id="radarGrid"></div>
 
         <div class="work-area">
             <div class="panel">
                 <div style="display:flex; justify-content:space-between; align-items:center">
-                    <h2 id="chartTitle" style="margin:0">BTC / USDT</h2>
+                    <div style="display:flex; align-items:center; gap:10px">
+                        <h2 id="chartTitle" style="margin:0">BTC / USDT</h2>
+                        <button class="refresh-btn" onclick="forceUpdateCurrent()" title="Actualizar">↻</button>
+                    </div>
                     <span id="mainSignal" class="r-signal sig-neutral">ESPERANDO</span>
                 </div>
                 
@@ -102,9 +95,13 @@
                         <span>VALOR: <span id="myPosVal">$0.00</span></span>
                     </div>
                     
-                    <div style="font-size:12px; margin-top:10px; color:#e2e8f0">OPERAR (EN USDT)</div>
+                    <div style="font-size:12px; margin-top:10px; color:#e2e8f0; display:flex; gap:10px">
+                        <span style="flex:1">MONTO (USDT)</span>
+                        <span style="flex:1">PRECIO OPERADO</span>
+                    </div>
                     <div class="input-group">
-                        <input type="number" id="tradeUSDT" class="op-input" placeholder="Ej: 100 USDT">
+                        <input type="number" id="tradeUSDT" class="op-input" placeholder="Ej: 100">
+                        <input type="number" id="tradePrice" class="op-input" placeholder="Precio real">
                         <button class="btn-buy" onclick="registerTrade('COMPRA')">COMPRAR</button>
                         <button class="btn-sell" onclick="registerTrade('VENTA')">VENDER</button>
                     </div>
@@ -127,7 +124,7 @@
         const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"];
         let currentSymbol = 'BTCUSDT';
         let currentPrice = 0;
-        let marketData = {}; // Cache local
+        let marketData = {}; 
 
         async function startDay() {
             const bal = document.getElementById('startBalance').value;
@@ -138,7 +135,7 @@
             });
             document.getElementById('startModal').style.display = 'none';
             initRadar();
-            updateLoop();
+            startLoops();
         }
 
         function initRadar() {
@@ -156,36 +153,58 @@
                 `;
                 grid.appendChild(div);
             });
-            selectSymbol('BTCUSDT'); // Default
+            selectSymbol('BTCUSDT');
         }
 
         function selectSymbol(sym) {
             currentSymbol = sym;
-            // Visual Active State
             document.querySelectorAll('.radar-card').forEach(c => c.classList.remove('active'));
             document.getElementById('card-'+sym).classList.add('active');
             
-            // Update Main View
             document.getElementById('chartTitle').innerText = sym.replace('USDT', ' / USDT');
             document.getElementById('tradeUSDT').value = '';
-            // Render data if available
-            if(marketData[sym]) renderMainView(marketData[sym]);
+            
+            if(marketData[sym]) {
+                renderMainView(marketData[sym]);
+                // Pre-fill precio con el último conocido
+                document.getElementById('tradePrice').value = marketData[sym].precio;
+            }
         }
 
-        async function updateLoop() {
-            // Actualizamos TODAS las monedas una por una
-            for (const sym of SYMBOLS) {
-                try {
-                    const res = await fetch(`/analisis?symbol=${sym}`);
-                    const data = await res.json();
-                    if(!data.error) {
-                        marketData[sym] = data;
-                        updateRadarCard(sym, data);
-                        if(sym === currentSymbol) renderMainView(data);
-                    }
-                } catch(e) {}
-            }
-            setTimeout(updateLoop, 5000);
+        function startLoops() {
+            // Un bucle independiente para cada moneda para evitar que una bloquee a otra
+            SYMBOLS.forEach(sym => {
+                setInterval(() => fetchSymbolData(sym), 5000); // Cada 5s
+                fetchSymbolData(sym); // Primera carga inmediata
+            });
+        }
+
+        async function fetchSymbolData(sym) {
+            try {
+                const res = await fetch(`/analisis?symbol=${sym}`);
+                const data = await res.json();
+                
+                if(data.error) {
+                    // Marcar error visual en radar si falla
+                    document.getElementById(`s-${sym}`).innerText = "OFF";
+                    return;
+                }
+
+                marketData[sym] = data;
+                updateRadarCard(sym, data);
+                
+                if(sym === currentSymbol) {
+                    renderMainView(data);
+                    // Actualizar el input de precio SOLO si está vacío para no molestar al usuario
+                    const priceInput = document.getElementById('tradePrice');
+                    if(priceInput.value === "") priceInput.value = data.precio;
+                }
+            } catch(e) { console.log(e); }
+        }
+
+        function forceUpdateCurrent() {
+            document.getElementById('chartTitle').innerText = "Actualizando...";
+            fetchSymbolData(currentSymbol);
         }
 
         function updateRadarCard(sym, data) {
@@ -206,17 +225,15 @@
 
         function renderMainView(data) {
             currentPrice = data.precio;
+            document.getElementById('chartTitle').innerText = currentSymbol.replace('USDT', ' / USDT');
             document.getElementById('globalBalance').innerText = "$" + data.portfolio.usdt.toLocaleString('en-US', {minimumFractionDigits: 2});
             
-            // Chart
             if(data.grafico) document.getElementById('chart').src = data.grafico;
             
-            // Main Signal Badge
             const ms = document.getElementById('mainSignal');
             ms.innerText = data.decision;
             ms.className = "r-signal " + (data.decision.includes("COMPRA") ? "sig-buy" : (data.decision.includes("VENTA") ? "sig-sell" : "sig-neutral"));
 
-            // My Position
             document.getElementById('myPos').innerText = data.portfolio.coin.toFixed(4);
             const val = data.portfolio.coin * data.precio;
             document.getElementById('myPosVal').innerText = "$" + val.toLocaleString('en-US', {minimumFractionDigits: 2});
@@ -224,7 +241,9 @@
 
         async function registerTrade(action) {
             const amt = document.getElementById('tradeUSDT').value;
-            if(!amt) return alert("Ingresa monto en USDT");
+            const prc = document.getElementById('tradePrice').value;
+            
+            if(!amt || !prc) return alert("Ingresa monto en USDT y Precio");
 
             const res = await fetch('/registrar_trade', {
                 method: 'POST',
@@ -233,7 +252,7 @@
                     symbol: currentSymbol,
                     action: action,
                     usdt_amount: amt,
-                    price: currentPrice
+                    price: prc
                 })
             });
             const d = await res.json();
@@ -241,10 +260,7 @@
             else {
                 alert("Operación Exitosa!");
                 document.getElementById('tradeUSDT').value = "";
-                // Force instant update
-                const refresh = await fetch(`/analisis?symbol=${currentSymbol}`);
-                const rdata = await refresh.json();
-                renderMainView(rdata);
+                forceUpdateCurrent();
             }
         }
 

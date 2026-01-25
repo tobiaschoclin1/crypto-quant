@@ -57,15 +57,15 @@ async def registrar_trade(request: Request):
     data = await request.json()
     symbol = data.get("symbol")
     action = data.get("action")
-    usdt_amount = float(data.get("usdt_amount", 0)) # AHORA ES EN DÓLARES
-    price = float(data.get("price", 0))
+    usdt_amount = float(data.get("usdt_amount", 0)) 
+    price = float(data.get("price", 0)) # PRECIO MANUAL
     
     if symbol not in real_portfolio: return {"error": "Moneda no válida"}
-    if price == 0: return {"error": "Precio inválido"}
+    if price <= 0: return {"error": "Precio inválido"}
 
     pf = real_portfolio[symbol]
     
-    # Calculamos cuánta crypto es
+    # Calculamos cuánta crypto es basado en el precio que TU dijiste
     crypto_amount = usdt_amount / price
     
     if action == "COMPRA":
@@ -78,28 +78,26 @@ async def registrar_trade(request: Request):
         GLOBAL_USDT -= usdt_amount
         
     elif action == "VENTA":
-        # Para venta, usdt_amount es cuanto queremos recibir en dolares
-        # Verificamos si tenemos esa cantidad en crypto
         if pf["coin"] * price < usdt_amount: return {"error": "No tienes suficiente crypto"}
         
         pf["coin"] -= crypto_amount
         if pf["coin"] < 0: pf["coin"] = 0
         GLOBAL_USDT += usdt_amount
-        if pf["coin"] <= 0.000001: pf["avg_price"] = 0.0 # Reset si vendimos todo
+        if pf["coin"] <= 0.000001: pf["avg_price"] = 0.0 
         
     for s in SYMBOLS: real_portfolio[s]["usdt"] = GLOBAL_USDT
     return {"status": "OK", "nuevo_saldo": GLOBAL_USDT}
 
 def obtener_datos(symbol):
+    # Timeout muy corto para que no trabe todo
     urls = [
         "https://api.binance.com/api/v3/klines",
-        "https://api1.binance.com/api/v3/klines",
-        "https://api.binance.us/api/v3/klines"
+        "https://api1.binance.com/api/v3/klines"
     ]
     params = {"symbol": symbol, "interval": "1m", "limit": 100}
     for url in urls:
         try:
-            r = requests.get(url, params=params, headers=HEADERS, timeout=3)
+            r = requests.get(url, params=params, headers=HEADERS, timeout=2)
             if r.status_code == 200:
                 df = pd.DataFrame(r.json(), columns=['t', 'o', 'h', 'l', 'c', 'v', 'x', 'x', 'x', 'x', 'x', 'x'])
                 for c in ['o', 'h', 'l', 'c', 'v']: df[c] = df[c].astype(float)
