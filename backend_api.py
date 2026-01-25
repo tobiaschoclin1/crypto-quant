@@ -23,7 +23,7 @@ app.add_middleware(
 # --- CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
-GEMINI_API_KEY = "PEGA_TU_CLAVE_AQUI" 
+GEMINI_API_KEY = "AIzaSyBmeV-fa7Buf2EKoVzRSm-PF6R8tJF2E9c" 
 # --------------------
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
@@ -57,20 +57,17 @@ async def registrar_trade(request: Request):
     data = await request.json()
     symbol = data.get("symbol")
     action = data.get("action")
-    usdt_amount = float(data.get("usdt_amount", 0)) 
-    price = float(data.get("price", 0)) # PRECIO MANUAL
+    usdt_amount = float(data.get("usdt_amount", 0))
+    price = float(data.get("price", 0))
     
     if symbol not in real_portfolio: return {"error": "Moneda no válida"}
     if price <= 0: return {"error": "Precio inválido"}
 
     pf = real_portfolio[symbol]
-    
-    # Calculamos cuánta crypto es basado en el precio que TU dijiste
     crypto_amount = usdt_amount / price
     
     if action == "COMPRA":
         if GLOBAL_USDT < usdt_amount: return {"error": "Saldo insuficiente"}
-        
         total_coins = pf["coin"] + crypto_amount
         total_cost = (pf["coin"] * pf["avg_price"]) + usdt_amount
         pf["avg_price"] = total_cost / total_coins if total_coins > 0 else price
@@ -78,8 +75,7 @@ async def registrar_trade(request: Request):
         GLOBAL_USDT -= usdt_amount
         
     elif action == "VENTA":
-        if pf["coin"] * price < usdt_amount: return {"error": "No tienes suficiente crypto"}
-        
+        if pf["coin"] * price < usdt_amount * 0.99: return {"error": "No tienes suficiente crypto"}
         pf["coin"] -= crypto_amount
         if pf["coin"] < 0: pf["coin"] = 0
         GLOBAL_USDT += usdt_amount
@@ -88,24 +84,39 @@ async def registrar_trade(request: Request):
     for s in SYMBOLS: real_portfolio[s]["usdt"] = GLOBAL_USDT
     return {"status": "OK", "nuevo_saldo": GLOBAL_USDT}
 
+# --- FUNCIÓN BLINDADA MULTI-EXCHANGE ---
 def obtener_datos(symbol):
-    # Timeout muy corto para que no trabe todo
-    urls = [
-        "https://api.binance.com/api/v3/klines",
-        "https://api1.binance.com/api/v3/klines"
-    ]
-    params = {"symbol": symbol, "interval": "1m", "limit": 100}
-    for url in urls:
-        try:
-            r = requests.get(url, params=params, headers=HEADERS, timeout=2)
-            if r.status_code == 200:
-                df = pd.DataFrame(r.json(), columns=['t', 'o', 'h', 'l', 'c', 'v', 'x', 'x', 'x', 'x', 'x', 'x'])
-                for c in ['o', 'h', 'l', 'c', 'v']: df[c] = df[c].astype(float)
-                return df
-        except: continue
+    # 1. INTENTO BINANCE
+    try:
+        url = "https://api.binance.com/api/v3/klines"
+        params = {"symbol": symbol, "interval": "1m", "limit": 100}
+        r = requests.get(url, params=params, headers=HEADERS, timeout=2)
+        if r.status_code == 200:
+            df = pd.DataFrame(r.json(), columns=['t', 'o', 'h', 'l', 'c', 'v', 'x', 'x', 'x', 'x', 'x', 'x'])
+            for c in ['o', 'h', 'l', 'c', 'v']: df[c] = df[c].astype(float)
+            return df
+    except: pass # Si falla, seguimos silenciosamente
+
+    # 2. INTENTO BYBIT (El salvavidas)
+    try:
+        # Bybit API v5
+        url = "https://api.bybit.com/v5/market/kline"
+        params = {"category": "spot", "symbol": symbol, "interval": "1", "limit": 100}
+        r = requests.get(url, params=params, headers=HEADERS, timeout=2)
+        if r.status_code == 200:
+            data = r.json()['result']['list']
+            # Bybit devuelve al revés (nuevo -> viejo). Invertimos.
+            df = pd.DataFrame(data, columns=['t', 'o', 'h', 'l', 'c', 'v', 'to'])
+            df = df.iloc[::-1].reset_index(drop=True)
+            for c in ['o', 'h', 'l', 'c', 'v']: df[c] = df[c].astype(float)
+            return df
+    except: pass
+
+    # Si todo falla, devolvemos vacío
     return pd.DataFrame()
 
 def calcular_indicadores(df):
+    if len(df) < 20: return df
     df['sma20'] = df['c'].rolling(window=20).mean()
     df['std20'] = df['c'].rolling(window=20).std()
     df['upper'] = df['sma20'] + (df['std20'] * 2)
@@ -118,6 +129,7 @@ def calcular_indicadores(df):
     return df
 
 def generar_grafico(df):
+    if df.empty: return ""
     try:
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(10, 5), dpi=100)
@@ -144,7 +156,10 @@ def get_analisis(symbol: str = "BTCUSDT"):
     
     df = obtener_datos(symbol)
     if df.empty: 
-        return {"error": True, "mensaje": "Sin conexión", "portfolio": real_portfolio[symbol]}
+        # Si fallan Binance Y Bybit, mostramos cache antigua o error
+        cached = market_data_cache.get(symbol)
+        if cached: return cached # Mejor mostrar dato viejo que nada
+        return {"error": True, "mensaje": "Sin data", "portfolio": real_portfolio[symbol]}
     
     df = calcular_indicadores(df)
     current = df.iloc[-1]
@@ -154,6 +169,7 @@ def get_analisis(symbol: str = "BTCUSDT"):
     signal = "NEUTRAL"
     reasons = []
     
+    # Lógica Trading
     if pf["coin"] > 0 and pf["avg_price"] > 0:
         pnl = (precio - pf["avg_price"]) / pf["avg_price"]
         if pnl <= -STOP_LOSS_PCT:
