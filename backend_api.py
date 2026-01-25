@@ -24,17 +24,16 @@ app.add_middleware(
 # --- CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
-# ⚠️ TU CLAVE NUEVA ⚠️
-GEMINI_API_KEY = "PEGA_TU_CLAVE_AQUI" 
+GEMINI_API_KEY = "AIzaSyBmeV-fa7Buf2EKoVzRSm-PF6R8tJF2E9c" 
 # --------------------
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
 INITIAL_CAPITAL = 1000.0
 BUY_AMOUNT = 200.0 
 
-# GESTIÓN DE RIESGO
-STOP_LOSS_PCT = 0.02  # Cortar pérdidas al 2%
-TAKE_PROFIT_PCT = 0.06 # Buscar ganancias del 6%
+# CONFIGURACIÓN SCALPING (Muy Agresiva)
+STOP_LOSS_PCT = 0.003  # 0.3% (Cortar rapidísimo)
+TAKE_PROFIT_PCT = 0.008 # 0.8% (Asegurar ganancia rápida)
 
 portfolios = {
     sym: {"usdt": INITIAL_CAPITAL, "coin": 0.0, "avg_price": 0.0, "trades": 0}
@@ -47,7 +46,7 @@ def enviar_telegram(mensaje):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         data = {"chat_id": TELEGRAM_CHAT_ID, "text": mensaje, "parse_mode": "Markdown"}
-        requests.post(url, data=data, timeout=3)
+        requests.post(url, data=data, timeout=2)
     except: pass
 
 @app.get("/", response_class=HTMLResponse)
@@ -70,114 +69,105 @@ async def chat_with_ai(request: Request):
         precio = datos.get("precio", 0)
         decision = datos.get("decision", "NEUTRAL")
         razones = datos.get("detalles", [])
-        pf = datos.get("portfolio", {})
         soporte = datos.get("soporte", 0)
         resistencia = datos.get("resistencia", 0)
 
         contexto = f"""
-        Actúa como un Trader Senior experto en {symbol}.
-        DATOS DE MERCADO:
-        - Precio: ${precio:,.2f}
-        - Señal: {decision}
-        - Soportes/Resistencias: ${soporte:,.2f} / ${resistencia:,.2f}
-        - Razones Técnicas: {', '.join(razones)}
-        PORTAFOLIO:
-        - USDT: ${pf.get('usdt', 0):,.2f}
-        - Crypto: {pf.get('coin', 0):,.4f}
+        Actúa como un Scalper Trader agresivo experto en {symbol}.
+        MERCADO (1min): Precio ${precio:,.2f} | Señal: {decision}
+        Soporte/Resistencia: ${soporte:,.2f} / ${resistencia:,.2f}
+        Razones: {', '.join(razones)}
         Usuario: "{user_message}"
-        Responde corto y directo.
+        Responde en 1 frase ultra corta y directa.
         """
         
         payload = { "contents": [{ "parts": [{"text": contexto}] }] }
         headers = {"Content-Type": "application/json"}
         
         if not valid_model_name:
-            try:
-                resp_list = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}", timeout=5)
-                if resp_list.status_code == 200:
-                    for model in resp_list.json().get('models', []):
-                        if 'generateContent' in model.get('supportedGenerationMethods', []):
-                            valid_model_name = model['name'].replace("models/", "")
-                            break
-            except: pass
-        if not valid_model_name: valid_model_name = "gemini-1.5-flash"
+            valid_model_name = "gemini-1.5-flash"
 
         url_chat = f"https://generativelanguage.googleapis.com/v1beta/models/{valid_model_name}:generateContent?key={api_key}"
-        response = requests.post(url_chat, headers=headers, json=payload, timeout=30)
+        response = requests.post(url_chat, headers=headers, json=payload, timeout=10) # Timeout corto para velocidad
         
         if response.status_code == 200:
             return JSONResponse({"reply": response.json()['candidates'][0]['content']['parts'][0]['text']})
         elif response.status_code == 404:
-             valid_model_name = None 
-             return JSONResponse({"reply": "Modelo reiniciando... pregunta de nuevo."})
+             valid_model_name = "gemini-1.0-pro" # Fallback rápido
+             return JSONResponse({"reply": "Recalibrando IA..."})
         else:
-            return JSONResponse({"reply": f"Error IA: {response.text}"})
+            return JSONResponse({"reply": "Silencio de radio (Error IA)."})
 
     except Exception as e:
-        return JSONResponse({"reply": f"Error interno: {str(e)}"})
+        return JSONResponse({"reply": "Error sistema."})
 
 # --- LÓGICA DE MERCADO ---
 def obtener_datos(symbol):
+    # Usamos 1m (1 minuto) para Scalping puro
     urls = [
         "https://api.binance.com/api/v3/klines",
         "https://api1.binance.com/api/v3/klines",
         "https://api.binance.us/api/v3/klines"
     ]
-    params = {"symbol": symbol, "interval": "15m", "limit": 200}
+    params = {"symbol": symbol, "interval": "1m", "limit": 100} # Solo necesitamos 100 velas
+    
     for url in urls:
         try:
-            r = requests.get(url, params=params, timeout=5)
+            r = requests.get(url, params=params, timeout=2) # Timeout muy bajo para no colgarse
             if r.status_code == 200:
                 df = pd.DataFrame(r.json(), columns=['t', 'o', 'h', 'l', 'c', 'v', 'x', 'x', 'x', 'x', 'x', 'x'])
-                cols = ['o', 'h', 'l', 'c', 'v']
-                for c in cols: df[c] = df[c].astype(float)
+                for c in ['o', 'h', 'l', 'c', 'v']: df[c] = df[c].astype(float)
                 return df
         except: continue
     return pd.DataFrame()
 
 def calcular_indicadores(df):
-    # RSI
+    # Estrategia Scalping: Bollinger + RSI Rápido
+    df['sma20'] = df['c'].rolling(window=20).mean()
+    df['std20'] = df['c'].rolling(window=20).std()
+    df['upper'] = df['sma20'] + (df['std20'] * 2)
+    df['lower'] = df['sma20'] - (df['std20'] * 2)
+    
+    # RSI de 7 periodos (más sensible que el de 14)
     delta = df['c'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    gain = (delta.where(delta > 0, 0)).rolling(window=7).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=7).mean()
     rs = gain / loss
     df['rsi'] = 100 - (100 / (1 + rs))
     
-    # EMA 200 (Tendencia Macro)
-    df['ema200'] = df['c'].ewm(span=200, adjust=False).mean()
-    
-    # MACD
-    ema12 = df['c'].ewm(span=12, adjust=False).mean()
-    ema26 = df['c'].ewm(span=26, adjust=False).mean()
-    df['macd'] = ema12 - ema26
-    df['signal'] = df['macd'].ewm(span=9, adjust=False).mean()
-    
-    # BANDAS DE BOLLINGER
-    df['sma20'] = df['c'].rolling(window=20).mean()
-    df['std20'] = df['c'].rolling(window=20).std()
-    df['bollinger_upper'] = df['sma20'] + (df['std20'] * 2)
-    df['bollinger_lower'] = df['sma20'] - (df['std20'] * 2)
-    
     return df
+
+def generar_grafico(df, symbol):
+    try:
+        plt.style.use('dark_background')
+        fig, ax = plt.subplots(figsize=(10, 5), dpi=100)
+        data = df['c'].tail(60) # Últimos 60 minutos
+        upper = df['upper'].tail(60)
+        lower = df['lower'].tail(60)
+        x = range(len(data))
+        
+        ax.plot(x, data, color='#22d3ee', linewidth=2, label='Precio (1m)')
+        ax.plot(x, upper, color='#a78bfa', linewidth=0.5, alpha=0.5)
+        ax.plot(x, lower, color='#a78bfa', linewidth=0.5, alpha=0.5)
+        ax.fill_between(x, upper, lower, color='#a78bfa', alpha=0.05)
+        
+        ax.axis('off'); ax.grid(False)
+        ax.legend(loc='upper left', frameon=False, fontsize=8)
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', bbox_inches='tight', transparent=True)
+        plt.close(fig)
+        buf.seek(0)
+        return f"data:image/png;base64,{base64.b64encode(buf.read()).decode('utf-8')}"
+    except: return ""
 
 def ejecutar_estrategia(symbol, df):
     global portfolios
     
     current = df.iloc[-1]
-    prev = df.iloc[-2]
     precio = current['c']
     pf = portfolios[symbol]
     
-    # 1. ANÁLISIS DE TENDENCIA (LA CLAVE ANTI-CAÍDAS)
-    # Calculamos la pendiente de la EMA 200 (Si baja, es mercado bajista, NO COMPRAR)
-    ema_actual = current['ema200']
-    ema_prev = df.iloc[-5]['ema200'] # Hace 5 velas
-    pendiente_bajista = ema_actual < ema_prev # La línea va hacia abajo
-    
-    # Precio debajo de EMA 200 es zona de peligro
-    zona_peligro = precio < ema_actual
-
-    # 2. GESTIÓN DE RIESGO ACTIVA
+    # GESTIÓN RIESGO MILIMÉTRICA
     stop_triggered = False
     take_profit_triggered = False
     
@@ -186,46 +176,26 @@ def ejecutar_estrategia(symbol, df):
         if pnl_pct <= -STOP_LOSS_PCT: stop_triggered = True
         elif pnl_pct >= TAKE_PROFIT_PCT: take_profit_triggered = True
 
-    # 3. SEÑALES TÉCNICAS
-    cruce_macd_alcista = (prev['macd'] < prev['signal']) and (current['macd'] > current['signal'])
-    # RSI Muy bajo (Pánico real)
-    rsi_panico = current['rsi'] < 25 
+    # SEÑALES DE SCALPING
+    # Compra: Precio toca banda inferior Y RSI < 30 (Rebote inminente)
+    signal_buy = (precio <= current['lower']) and (current['rsi'] < 30)
     
-    razones = []
-    score = 5
+    # Venta: Precio toca banda superior O RSI > 70 (Agotamiento)
+    signal_sell = (precio >= current['upper']) or (current['rsi'] > 70)
 
-    # Lógica Defensiva
-    if pendiente_bajista: 
-        score = 0
-        razones.append("Tendencia Bajista Fuerte (EMA 📉)")
-    elif zona_peligro:
-        score -= 2
-        razones.append("Precio bajo EMA 200 ⚠️")
-    else:
-        score += 2
-        razones.append("Tendencia Saludable ✅")
-
-    if cruce_macd_alcista: score += 2; razones.append("Cruce MACD 🟢")
-    if rsi_panico: score += 2; razones.append("Oportunidad Rebote (RSI bajo) 💎")
-
-    # DECISIÓN FINAL
     decision = "NEUTRAL"
+    razones = []
 
-    # Prioridad 1: Salvar capital (Stop Loss / Take Profit)
-    if stop_triggered or take_profit_triggered:
-        decision = "VENTA"
-    
-    # Prioridad 2: Compra SEGURA
-    # SOLO compramos si la tendencia NO es bajista fuerte
-    # O si hay un rebote técnico muy claro (MACD + RSI Pánico) aunque estemos abajo
-    elif (not pendiente_bajista) and (score >= 7 or (cruce_macd_alcista and rsi_panico)):
-        decision = "COMPRA"
-    
-    # Prioridad 3: Venta técnica
-    elif pendiente_bajista and pf["coin"] > 0:
-        decision = "VENTA" # Salir si la tendencia se rompe
-    
-    # --- EJECUCIÓN ---
+    if stop_triggered: decision = "VENTA"; razones.append("STOP LOSS (Scalp) 🛑")
+    elif take_profit_triggered: decision = "VENTA"; razones.append("TAKE PROFIT (Scalp) 💰")
+    elif signal_buy: decision = "COMPRA"; razones.append("Rebote Banda Inferior 💎")
+    elif signal_sell and pf["coin"] > 0: decision = "VENTA"; razones.append("Techo Banda Superior 📉")
+
+    score = 5
+    if decision == "COMPRA": score = 9
+    elif decision == "VENTA": score = 2
+
+    # EJECUCIÓN
     if decision == "COMPRA" and pf["usdt"] >= BUY_AMOUNT:
         cantidad = BUY_AMOUNT / precio
         total_coins = pf["coin"] + cantidad
@@ -233,24 +203,17 @@ def ejecutar_estrategia(symbol, df):
         pf["avg_price"] = total_cost / total_coins if total_coins > 0 else precio
         pf["coin"] += cantidad
         pf["usdt"] -= BUY_AMOUNT
-        enviar_telegram(f"🔵 *{symbol} COMPRA*\nPrecio: ${precio:,.2f}\nRazones: {', '.join(razones)}")
+        enviar_telegram(f"⚡ *SCALPING {symbol} COMPRA*\nPrecio: ${precio:,.2f}")
 
-    elif decision == "VENTA" and pf["coin"] * precio > 10: 
+    elif decision == "VENTA" and pf["coin"] * precio > 5: 
         valor = pf["coin"] * precio
         ganancia = valor - (pf["coin"] * pf["avg_price"])
-        
-        motivo = "Técnica"
-        if stop_triggered: motivo = "STOP LOSS 🛑"
-        if take_profit_triggered: motivo = "TAKE PROFIT 💰"
-        if pendiente_bajista: motivo = "TENDENCIA ROTA 📉"
-
         pf["usdt"] += valor
         pf["coin"] = 0
         pf["avg_price"] = 0
         pf["trades"] += 1
-        
         icono = "✅" if ganancia > 0 else "❌"
-        enviar_telegram(f"🟠 *{symbol} VENTA ({motivo})*\nResultado: {icono} ${ganancia:,.2f}")
+        enviar_telegram(f"⚡ *SCALPING {symbol} VENTA*\nResultado: {icono} ${ganancia:,.2f}")
 
     return {
         "symbol": symbol,
@@ -258,8 +221,8 @@ def ejecutar_estrategia(symbol, df):
         "score": score,
         "decision": decision,
         "detalles": razones,
-        "soporte": df.tail(50)['l'].min(),
-        "resistencia": df.tail(50)['h'].max(),
+        "soporte": current['lower'],
+        "resistencia": current['upper'],
         "grafico": generar_grafico(df, symbol),
         "portfolio": pf
     }
@@ -271,9 +234,11 @@ def get_analisis(symbol: str = "BTCUSDT"):
     
     df = obtener_datos(symbol)
     if df.empty:
+        # Modo Fallback para no romper el frontend
         cached = portfolios[symbol]
         return {
-            "symbol": symbol, "precio": 0, "decision": "OFFLINE", "portfolio": cached, "update_time": "00:00:00"
+            "symbol": symbol, "precio": 0, "decision": "OFFLINE", 
+            "portfolio": cached, "update_time": "Reintentando..."
         }
     
     df = calcular_indicadores(df)
@@ -288,14 +253,13 @@ def get_analisis(symbol: str = "BTCUSDT"):
         
     return resultado
 
-# ENDPOINT UPTIMEROBOT
 @app.get("/update_all")
 def update_all_symbols():
     resumen = []
     for sym in SYMBOLS:
-        dato = get_analisis(sym)
-        resumen.append({"moneda": sym, "accion": dato["decision"]})
-    return {"status": "OK", "data": resumen}
+        get_analisis(sym)
+        resumen.append(sym)
+    return {"status": "Scalping Cycle Done", "checked": resumen}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
