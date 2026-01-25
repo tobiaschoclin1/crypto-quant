@@ -250,11 +250,13 @@ async def chat_with_ai(request: Request):
         
     except: return JSONResponse({"reply": "Error interno."})
 
-@app.get("/")
+# --- CORRECCIÓN AQUÍ ---
+@app.get("/", response_class=HTMLResponse) # <--- Agregamos response_class=HTMLResponse
 def read_root():
     if os.path.exists("index.html"):
-        with open("index.html", "r", encoding="utf-8") as f: return f.read()
-    return "No index"
+        with open("index.html", "r", encoding="utf-8") as f:
+            return f.read()
+    return "<h1>Error: No index.html</h1>"
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
