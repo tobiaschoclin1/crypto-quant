@@ -23,104 +23,81 @@ app.add_middleware(
 # --- CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
-GEMINI_API_KEY = "AIzaSyBmeV-fa7Buf2EKoVzRSm-PF6R8tJF2E9c" 
+GEMINI_API_KEY = "PEGA_TU_CLAVE_AQUI" 
 # --------------------
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
-
-# --- MEMORIA DEL SISTEMA (Tu Libreta de Trabajo) ---
-# Aquí guardamos lo que TÚ le dices que tienes.
+GLOBAL_USDT = 0.0
 real_portfolio = {
     sym: {"usdt": 0.0, "coin": 0.0, "avg_price": 0.0} 
     for sym in SYMBOLS
 }
-# Saldo global de USDT (compartido para todas las monedas o individual, 
-# para simplificar lo haremos "Caja Única" visualmente en el frontend, 
-# pero internamente trackeamos disponibilidad).
-GLOBAL_USDT = 0.0
-
 market_data_cache = {} 
 valid_model_name = None
+STOP_LOSS_PCT = 0.01 
+TAKE_PROFIT_PCT = 0.015
 
-# --- CONFIGURACIÓN ESTRATEGIA (Scalping Sniper) ---
-STOP_LOSS_PCT = 0.01  # 1% Riesgo
-TAKE_PROFIT_PCT = 0.015 # 1.5% Ganancia
-
-# --- ENDPOINTS DE GESTIÓN (TU OFICINA) ---
+# --- EL DISFRAZ ANTI-BLOQUEO ---
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+}
 
 @app.post("/set_balance")
 async def set_balance(request: Request):
     global GLOBAL_USDT, real_portfolio
     data = await request.json()
-    
-    # Reiniciamos el día
     GLOBAL_USDT = float(data.get("usdt", 0))
-    
-    # Opcional: Si ya tienes criptos compradas de antes
-    # Esperamos un dict: {"BTCUSDT": 0.5, "ETHUSDT": 2.0}
-    holdings = data.get("holdings", {})
-    
     for sym in SYMBOLS:
-        qty = float(holdings.get(sym, 0))
-        real_portfolio[sym] = {
-            "usdt": GLOBAL_USDT, # Referencia
-            "coin": qty,
-            "avg_price": 0.0 # Si traes de antes, asumimos 0 o habría que pedir precio
-        }
-        
+        real_portfolio[sym]["usdt"] = GLOBAL_USDT
+        real_portfolio[sym]["coin"] = 0.0
+        real_portfolio[sym]["avg_price"] = 0.0
     return {"status": "Turno iniciado", "usdt": GLOBAL_USDT}
 
 @app.post("/registrar_trade")
 async def registrar_trade(request: Request):
     global GLOBAL_USDT, real_portfolio
     data = await request.json()
-    
     symbol = data.get("symbol")
-    action = data.get("action") # "COMPRA" o "VENTA"
-    amount_crypto = float(data.get("amount", 0)) # Cuanta cripto compraste/vendiste
-    price = float(data.get("price", 0)) # A qué precio
+    action = data.get("action")
+    amount = float(data.get("amount", 0))
+    price = float(data.get("price", 0))
     
     if symbol not in real_portfolio: return {"error": "Moneda no válida"}
-    
     pf = real_portfolio[symbol]
-    total_usd = amount_crypto * price
+    total_usd = amount * price
     
     if action == "COMPRA":
-        # Actualizamos promedio de compra
-        total_coins = pf["coin"] + amount_crypto
+        total_coins = pf["coin"] + amount
         total_cost = (pf["coin"] * pf["avg_price"]) + total_usd
         pf["avg_price"] = total_cost / total_coins if total_coins > 0 else price
-        
-        pf["coin"] += amount_crypto
+        pf["coin"] += amount
         GLOBAL_USDT -= total_usd
-        
     elif action == "VENTA":
-        pf["coin"] -= amount_crypto
-        if pf["coin"] < 0: pf["coin"] = 0 # Evitar negativos
+        pf["coin"] -= amount
+        if pf["coin"] < 0: pf["coin"] = 0
         GLOBAL_USDT += total_usd
-        # Si vendemos todo, reseteamos precio promedio
         if pf["coin"] == 0: pf["avg_price"] = 0.0
         
-    # Sincronizar USDT en todos los pares (Concepto Caja Única)
     for s in SYMBOLS: real_portfolio[s]["usdt"] = GLOBAL_USDT
-        
-    return {"status": "Operación registrada", "nuevo_saldo": GLOBAL_USDT, "tenencia": pf["coin"]}
-
-
-# --- LÓGICA DE TRADING (El Analista) ---
-# (Usamos la lógica Sniper/Scalper del nivel anterior, pero SIN ejecutar compras automáticas)
+    return {"status": "OK", "nuevo_saldo": GLOBAL_USDT}
 
 def obtener_datos(symbol):
-    # Usamos 1m para rapidez
-    try:
-        url = "https://api.binance.com/api/v3/klines"
-        params = {"symbol": symbol, "interval": "1m", "limit": 100}
-        r = requests.get(url, params=params, timeout=2)
-        if r.status_code == 200:
-            df = pd.DataFrame(r.json(), columns=['t', 'o', 'h', 'l', 'c', 'v', 'x', 'x', 'x', 'x', 'x', 'x'])
-            for c in ['o', 'h', 'l', 'c', 'v']: df[c] = df[c].astype(float)
-            return df
-    except: pass
+    # Intentamos varias URLs con Headers para evitar bloqueos
+    urls = [
+        "https://api.binance.com/api/v3/klines",
+        "https://api1.binance.com/api/v3/klines",
+        "https://api.binance.us/api/v3/klines"
+    ]
+    params = {"symbol": symbol, "interval": "1m", "limit": 100}
+    
+    for url in urls:
+        try:
+            r = requests.get(url, params=params, headers=HEADERS, timeout=3)
+            if r.status_code == 200:
+                df = pd.DataFrame(r.json(), columns=['t', 'o', 'h', 'l', 'c', 'v', 'x', 'x', 'x', 'x', 'x', 'x'])
+                for c in ['o', 'h', 'l', 'c', 'v']: df[c] = df[c].astype(float)
+                return df
+        except: continue
     return pd.DataFrame()
 
 def calcular_indicadores(df):
@@ -128,7 +105,6 @@ def calcular_indicadores(df):
     df['std20'] = df['c'].rolling(window=20).std()
     df['upper'] = df['sma20'] + (df['std20'] * 2)
     df['lower'] = df['sma20'] - (df['std20'] * 2)
-    
     delta = df['c'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=7).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=7).mean()
@@ -162,54 +138,52 @@ def get_analisis(symbol: str = "BTCUSDT"):
     if symbol not in SYMBOLS: symbol = "BTCUSDT"
     
     df = obtener_datos(symbol)
-    if df.empty: return {"error": "Offline", "portfolio": real_portfolio[symbol]}
+    
+    # Manejo de error explícito
+    if df.empty: 
+        return {
+            "error": True, 
+            "mensaje": "Sin conexión Binance", 
+            "portfolio": real_portfolio[symbol]
+        }
     
     df = calcular_indicadores(df)
     current = df.iloc[-1]
     precio = current['c']
     pf = real_portfolio[symbol]
     
-    # --- ESTRATEGIA (CONSEJERO) ---
     signal = "NEUTRAL"
     reasons = []
     
-    # 1. Chequeo de Posición (Stop Loss / Take Profit)
+    # Gestión Riesgo
     if pf["coin"] > 0 and pf["avg_price"] > 0:
         pnl = (precio - pf["avg_price"]) / pf["avg_price"]
         if pnl <= -STOP_LOSS_PCT:
             signal = "VENTA FUERTE"
-            reasons.append(f"🛑 STOP LOSS ACTIVADO ({pnl*100:.2f}%)")
+            reasons.append(f"🛑 STOP LOSS ({pnl*100:.2f}%)")
         elif pnl >= TAKE_PROFIT_PCT:
             signal = "VENTA FUERTE"
-            reasons.append(f"💰 TAKE PROFIT ACTIVADO ({pnl*100:.2f}%)")
+            reasons.append(f"💰 TAKE PROFIT ({pnl*100:.2f}%)")
             
-    # 2. Análisis Técnico (Solo si no hay señal de salida forzada)
+    # Estrategia Técnica
     if signal == "NEUTRAL":
-        # Compra: Precio bajo banda inferior + RSI bajo
         if precio <= current['lower'] and current['rsi'] < 30:
-            if pf["coin"] == 0: # Solo sugerir compra si no tenemos
+            if pf["coin"] == 0:
                 signal = "COMPRA"
-                reasons.append("Rebote en Soporte + RSI Bajo")
-        
-        # Venta: Precio alto banda superior + RSI alto
+                reasons.append("Soporte + RSI Bajo")
         elif (precio >= current['upper'] or current['rsi'] > 70):
             if pf["coin"] > 0:
                 signal = "VENTA"
-                reasons.append("Techo alcanzado + RSI Alto")
+                reasons.append("Techo + RSI Alto")
 
     res = {
-        "symbol": symbol,
-        "precio": precio,
-        "decision": signal,
-        "detalles": reasons,
-        "grafico": generar_grafico(df),
-        "portfolio": pf, # Enviamos el portafolio REAL
+        "symbol": symbol, "precio": precio, "decision": signal, "detalles": reasons,
+        "grafico": generar_grafico(df), "portfolio": pf, 
         "update_time": datetime.now().strftime("%H:%M:%S")
     }
     market_data_cache[symbol] = res
     return res
 
-# --- CHATBOT (Consciente de tu saldo real) ---
 @app.post("/chat")
 async def chat_with_ai(request: Request):
     global valid_model_name, GLOBAL_USDT
@@ -218,40 +192,24 @@ async def chat_with_ai(request: Request):
         msg = body.get("message", "")
         symbol = body.get("symbol", "BTCUSDT")
         api_key = GEMINI_API_KEY.strip()
-        
         datos = market_data_cache.get(symbol, {})
         pf = real_portfolio.get(symbol, {})
-        
         contexto = f"""
-        Eres un Asesor de Trading de Oficina.
-        Tu jefe (el usuario) está operando {symbol}.
-        
-        ESTADO DEL MERCADO:
-        - Precio: ${datos.get('precio', 0):,.2f}
-        - Recomendación Sistema: {datos.get('decision', 'NEUTRAL')}
-        
-        ESTADO DE CUENTA (REAL):
-        - Caja USDT: ${GLOBAL_USDT:,.2f}
-        - Tenencia {symbol}: {pf.get('coin', 0):.4f} (Precio entrada: ${pf.get('avg_price', 0):,.2f})
-        
-        Usuario dice: "{msg}"
-        Responde profesional, corto y directo. Ayúdale a ganar dinero.
+        Asesor Trading. {symbol}.
+        Precio: ${datos.get('precio', 0):,.2f}. Señal: {datos.get('decision', 'NEUTRAL')}.
+        Caja: ${GLOBAL_USDT:,.2f}. Tenencia: {pf.get('coin', 0):.4f}.
+        Usuario: "{msg}". Responde corto.
         """
-        
         payload = { "contents": [{ "parts": [{"text": contexto}] }] }
         headers = {"Content-Type": "application/json"}
-        
         if not valid_model_name: valid_model_name = "gemini-1.5-flash"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{valid_model_name}:generateContent?key={api_key}"
-        
         r = requests.post(url, headers=headers, json=payload, timeout=10)
         if r.status_code == 200: return JSONResponse({"reply": r.json()['candidates'][0]['content']['parts'][0]['text']})
-        return JSONResponse({"reply": "Error de conexión IA."})
-        
+        return JSONResponse({"reply": "Error IA."})
     except: return JSONResponse({"reply": "Error interno."})
 
-# --- CORRECCIÓN AQUÍ ---
-@app.get("/", response_class=HTMLResponse) # <--- Agregamos response_class=HTMLResponse
+@app.get("/", response_class=HTMLResponse)
 def read_root():
     if os.path.exists("index.html"):
         with open("index.html", "r", encoding="utf-8") as f:

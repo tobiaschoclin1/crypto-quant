@@ -151,13 +151,21 @@
             updateData();
         }
 
-        async function updateData() {
+ async function updateData() {
             try {
                 const res = await fetch(`/analisis?symbol=${currentSymbol}`);
                 const data = await res.json();
                 
-                if(data.error) return; // Offline
+                // MANEJO DE ERROR (Si Binance bloquea)
+                if(data.error) {
+                    document.getElementById('signal').innerText = "OFFLINE";
+                    document.getElementById('signal').style.backgroundColor = "#ef4444";
+                    document.getElementById('signal').style.color = "white";
+                    document.getElementById('reasons').innerText = "Binance no responde. Reintentando...";
+                    return; 
+                }
 
+                // SI TODO VA BIEN...
                 currentPrice = data.precio;
                 document.getElementById('price').innerText = "$" + currentPrice.toLocaleString('en-US', {minimumFractionDigits: 2});
                 
