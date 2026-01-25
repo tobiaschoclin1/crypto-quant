@@ -24,16 +24,17 @@ app.add_middleware(
 # --- CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
-GEMINI_API_KEY = "AIzaSyBefrRTQIgNxgu0WU0vII2aAgk4EPxwvho" 
+# ⚠️ TU CLAVE NUEVA ⚠️
+GEMINI_API_KEY = "PEGA_TU_CLAVE_AQUI" 
 # --------------------
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
 INITIAL_CAPITAL = 1000.0
 BUY_AMOUNT = 200.0 
 
-# --- CONFIGURACIÓN DE RIESGO (EL SECRETO DEL ÉXITO) ---
-STOP_LOSS_PCT = 0.02  # Vender si pierde 2%
-TAKE_PROFIT_PCT = 0.05 # Vender si gana 5%
+# GESTIÓN DE RIESGO
+STOP_LOSS_PCT = 0.02  # Cortar pérdidas al 2%
+TAKE_PROFIT_PCT = 0.06 # Buscar ganancias del 6%
 
 portfolios = {
     sym: {"usdt": INITIAL_CAPITAL, "coin": 0.0, "avg_price": 0.0, "trades": 0}
@@ -75,23 +76,16 @@ async def chat_with_ai(request: Request):
 
         contexto = f"""
         Actúa como un Trader Senior experto en {symbol}.
-        
         DATOS DE MERCADO:
         - Precio: ${precio:,.2f}
         - Señal: {decision}
         - Soportes/Resistencias: ${soporte:,.2f} / ${resistencia:,.2f}
         - Razones Técnicas: {', '.join(razones)}
-        
-        GESTIÓN DE RIESGO ACTIVA:
-        - Stop Loss: -{STOP_LOSS_PCT*100}%
-        - Take Profit: +{TAKE_PROFIT_PCT*100}%
-        
         PORTAFOLIO:
         - USDT: ${pf.get('usdt', 0):,.2f}
-        - Crypto: {pf.get('coin', 0):,.4f} (Avg: ${pf.get('avg_price', 0):,.2f})
-        
+        - Crypto: {pf.get('coin', 0):,.4f}
         Usuario: "{user_message}"
-        Responde corto y directo. Si preguntan precios, usa los Soportes/Resistencias calculados.
+        Responde corto y directo.
         """
         
         payload = { "contents": [{ "parts": [{"text": contexto}] }] }
@@ -135,10 +129,8 @@ def obtener_datos(symbol):
             r = requests.get(url, params=params, timeout=5)
             if r.status_code == 200:
                 df = pd.DataFrame(r.json(), columns=['t', 'o', 'h', 'l', 'c', 'v', 'x', 'x', 'x', 'x', 'x', 'x'])
-                df['c'] = df['c'].astype(float)
-                df['v'] = df['v'].astype(float)
-                df['l'] = df['l'].astype(float) 
-                df['h'] = df['h'].astype(float) 
+                cols = ['o', 'h', 'l', 'c', 'v']
+                for c in cols: df[c] = df[c].astype(float)
                 return df
         except: continue
     return pd.DataFrame()
@@ -151,7 +143,7 @@ def calcular_indicadores(df):
     rs = gain / loss
     df['rsi'] = 100 - (100 / (1 + rs))
     
-    # EMA 200 (Tendencia)
+    # EMA 200 (Tendencia Macro)
     df['ema200'] = df['c'].ewm(span=200, adjust=False).mean()
     
     # MACD
@@ -160,39 +152,13 @@ def calcular_indicadores(df):
     df['macd'] = ema12 - ema26
     df['signal'] = df['macd'].ewm(span=9, adjust=False).mean()
     
-    # BANDAS DE BOLLINGER (Nuevo filtro de entrada)
+    # BANDAS DE BOLLINGER
     df['sma20'] = df['c'].rolling(window=20).mean()
     df['std20'] = df['c'].rolling(window=20).std()
     df['bollinger_upper'] = df['sma20'] + (df['std20'] * 2)
     df['bollinger_lower'] = df['sma20'] - (df['std20'] * 2)
     
     return df
-
-def generar_grafico(df, symbol):
-    try:
-        plt.style.use('dark_background')
-        fig, ax = plt.subplots(figsize=(10, 5), dpi=100)
-        data = df['c'].tail(100)
-        ema = df['ema200'].tail(100)
-        upper = df['bollinger_upper'].tail(100)
-        lower = df['bollinger_lower'].tail(100)
-        x = range(len(data))
-        
-        ax.plot(x, data, color='#22d3ee', linewidth=2, label='Precio')
-        ax.plot(x, ema, color='#fbbf24', linestyle='--', alpha=0.8, label='EMA 200')
-        # Dibujar Bandas Bollinger
-        ax.plot(x, upper, color='#a78bfa', linewidth=0.5, alpha=0.5)
-        ax.plot(x, lower, color='#a78bfa', linewidth=0.5, alpha=0.5)
-        ax.fill_between(x, upper, lower, color='#a78bfa', alpha=0.05)
-        
-        ax.axis('off'); ax.grid(False)
-        ax.legend(loc='upper left', frameon=False, fontsize=9)
-        buf = io.BytesIO()
-        fig.savefig(buf, format='png', bbox_inches='tight', transparent=True)
-        plt.close(fig)
-        buf.seek(0)
-        return f"data:image/png;base64,{base64.b64encode(buf.read()).decode('utf-8')}"
-    except: return ""
 
 def ejecutar_estrategia(symbol, df):
     global portfolios
@@ -202,55 +168,64 @@ def ejecutar_estrategia(symbol, df):
     precio = current['c']
     pf = portfolios[symbol]
     
-    # 1. GESTIÓN DE RIESGO (Prioridad Máxima)
+    # 1. ANÁLISIS DE TENDENCIA (LA CLAVE ANTI-CAÍDAS)
+    # Calculamos la pendiente de la EMA 200 (Si baja, es mercado bajista, NO COMPRAR)
+    ema_actual = current['ema200']
+    ema_prev = df.iloc[-5]['ema200'] # Hace 5 velas
+    pendiente_bajista = ema_actual < ema_prev # La línea va hacia abajo
+    
+    # Precio debajo de EMA 200 es zona de peligro
+    zona_peligro = precio < ema_actual
+
+    # 2. GESTIÓN DE RIESGO ACTIVA
     stop_triggered = False
     take_profit_triggered = False
     
-    if pf["coin"] > 0 and pf["avg_price"] > 0:
+    if pf["coin"] > 0:
         pnl_pct = (precio - pf["avg_price"]) / pf["avg_price"]
-        
-        # Stop Loss: Si pierde más del 2%
-        if pnl_pct <= -STOP_LOSS_PCT:
-            stop_triggered = True
-        # Take Profit: Si gana más del 5%
-        elif pnl_pct >= TAKE_PROFIT_PCT:
-            take_profit_triggered = True
+        if pnl_pct <= -STOP_LOSS_PCT: stop_triggered = True
+        elif pnl_pct >= TAKE_PROFIT_PCT: take_profit_triggered = True
 
-    # 2. INDICADORES TÉCNICOS
-    tendencia_alcista = precio > current['ema200']
+    # 3. SEÑALES TÉCNICAS
     cruce_macd_alcista = (prev['macd'] < prev['signal']) and (current['macd'] > current['signal'])
+    # RSI Muy bajo (Pánico real)
+    rsi_panico = current['rsi'] < 25 
     
-    # Nuevo filtro: Precio cerca de la banda inferior de Bollinger (Está barato)
-    cerca_bollinger_lower = precio <= (current['bollinger_lower'] * 1.005) # Margen del 0.5%
-    
-    score = 5
     razones = []
-    
-    if stop_triggered: razones.append("⛔ Alerta Stop Loss")
-    if take_profit_triggered: razones.append("💰 Alerta Take Profit")
-    
-    if tendencia_alcista: score += 2; razones.append("Tendencia Alcista ✅")
-    else: score -= 2; razones.append("Tendencia Bajista ⚠️")
-    
-    if cruce_macd_alcista: score += 2; razones.append("Cruce MACD 🔥")
-    if cerca_bollinger_lower: score += 2; razones.append("Precio Barato (Bollinger) 💎")
-    
-    score = max(0, min(10, score))
+    score = 5
+
+    # Lógica Defensiva
+    if pendiente_bajista: 
+        score = 0
+        razones.append("Tendencia Bajista Fuerte (EMA 📉)")
+    elif zona_peligro:
+        score -= 2
+        razones.append("Precio bajo EMA 200 ⚠️")
+    else:
+        score += 2
+        razones.append("Tendencia Saludable ✅")
+
+    if cruce_macd_alcista: score += 2; razones.append("Cruce MACD 🟢")
+    if rsi_panico: score += 2; razones.append("Oportunidad Rebote (RSI bajo) 💎")
+
+    # DECISIÓN FINAL
     decision = "NEUTRAL"
-    
-    # LÓGICA DE DECISIÓN DE VENTA FORZADA
+
+    # Prioridad 1: Salvar capital (Stop Loss / Take Profit)
     if stop_triggered or take_profit_triggered:
         decision = "VENTA"
-    # LÓGICA DE COMPRA MEJORADA
-    elif tendencia_alcista and (cruce_macd_alcista or (cerca_bollinger_lower and current['rsi'] < 45)):
+    
+    # Prioridad 2: Compra SEGURA
+    # SOLO compramos si la tendencia NO es bajista fuerte
+    # O si hay un rebote técnico muy claro (MACD + RSI Pánico) aunque estemos abajo
+    elif (not pendiente_bajista) and (score >= 7 or (cruce_macd_alcista and rsi_panico)):
         decision = "COMPRA"
-    # LÓGICA DE SALIDA TÉCNICA
-    elif (not tendencia_alcista) and score <= 3:
-        decision = "VENTA"
     
-    # EJECUCIÓN DE ÓRDENES
+    # Prioridad 3: Venta técnica
+    elif pendiente_bajista and pf["coin"] > 0:
+        decision = "VENTA" # Salir si la tendencia se rompe
     
-    # COMPRA (Solo si tengo USDT y señal de compra)
+    # --- EJECUCIÓN ---
     if decision == "COMPRA" and pf["usdt"] >= BUY_AMOUNT:
         cantidad = BUY_AMOUNT / precio
         total_coins = pf["coin"] + cantidad
@@ -258,23 +233,24 @@ def ejecutar_estrategia(symbol, df):
         pf["avg_price"] = total_cost / total_coins if total_coins > 0 else precio
         pf["coin"] += cantidad
         pf["usdt"] -= BUY_AMOUNT
-        enviar_telegram(f"🔵 *{symbol} COMPRA*\nPrecio: ${precio:,.2f}\nRazón: {', '.join(razones)}")
+        enviar_telegram(f"🔵 *{symbol} COMPRA*\nPrecio: ${precio:,.2f}\nRazones: {', '.join(razones)}")
 
-    # VENTA (Si tengo crypto y señal de venta o stop/tp)
     elif decision == "VENTA" and pf["coin"] * precio > 10: 
         valor = pf["coin"] * precio
         ganancia = valor - (pf["coin"] * pf["avg_price"])
-        tipo_venta = "TÉCNICA"
-        if stop_triggered: tipo_venta = "STOP LOSS 🛑"
-        if take_profit_triggered: tipo_venta = "TAKE PROFIT 💰"
         
+        motivo = "Técnica"
+        if stop_triggered: motivo = "STOP LOSS 🛑"
+        if take_profit_triggered: motivo = "TAKE PROFIT 💰"
+        if pendiente_bajista: motivo = "TENDENCIA ROTA 📉"
+
         pf["usdt"] += valor
         pf["coin"] = 0
-        pf["avg_price"] = 0 # Reset precio promedio
+        pf["avg_price"] = 0
         pf["trades"] += 1
         
         icono = "✅" if ganancia > 0 else "❌"
-        enviar_telegram(f"🟠 *{symbol} VENTA ({tipo_venta})*\nResultado: {icono} ${ganancia:,.2f}")
+        enviar_telegram(f"🟠 *{symbol} VENTA ({motivo})*\nResultado: {icono} ${ganancia:,.2f}")
 
     return {
         "symbol": symbol,
@@ -312,22 +288,14 @@ def get_analisis(symbol: str = "BTCUSDT"):
         
     return resultado
 
-
-# --- ENDPOINT ESPECIAL PARA UPTIMEROBOT ---
-# Este enlace despierta a las 5 monedas de una sola vez
+# ENDPOINT UPTIMEROBOT
 @app.get("/update_all")
 def update_all_symbols():
     resumen = []
     for sym in SYMBOLS:
-        # Forzamos el análisis de cada moneda
-        # Esto activa las compras, ventas, stop loss y take profit
         dato = get_analisis(sym)
-        resumen.append({
-            "moneda": sym, 
-            "accion": dato["decision"], 
-            "precio": dato["precio"]
-        })
-    return {"status": "Ciclo completo ejecutado", "detalles": resumen}
+        resumen.append({"moneda": sym, "accion": dato["decision"]})
+    return {"status": "OK", "data": resumen}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
