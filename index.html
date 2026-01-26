@@ -3,23 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trading Workstation V4</title>
+    <title>Trading Workstation V5 (Live)</title>
     <style>
         :root { --bg: #0f172a; --card: #1e293b; --text: #e2e8f0; --accent: #3b82f6; --green: #22c55e; --red: #ef4444; }
         body { background-color: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
         .container { width: 100%; max-width: 900px; display: flex; flex-direction: column; gap: 20px; }
 
-        /* RADAR SUPERIOR */
-        .radar-grid { 
-            display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); 
-            gap: 10px; width: 100%; 
-        }
-        .radar-card { 
-            background: var(--card); padding: 10px; border-radius: 8px; border: 1px solid #334155; 
-            cursor: pointer; transition: 0.2s; text-align: center;
-        }
+        .radar-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; width: 100%; }
+        .radar-card { background: var(--card); padding: 10px; border-radius: 8px; border: 1px solid #334155; cursor: pointer; transition: 0.2s; text-align: center; }
         .radar-card.active { border-color: var(--accent); background: #1e3a8a; }
+        
         .r-sym { font-size: 12px; font-weight: bold; color: #94a3b8; }
         .r-price { font-size: 14px; font-weight: 800; margin: 5px 0; }
         .r-signal { font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 4px; display: inline-block; }
@@ -28,30 +21,22 @@
         .sig-sell { background: rgba(239, 68, 68, 0.2); color: var(--red); border: 1px solid var(--red); }
         .sig-neutral { background: rgba(148, 163, 184, 0.2); color: #94a3b8; }
 
-        /* HEADER */
         .header-row { display: flex; justify-content: space-between; align-items: center; background: #1e293b; padding: 15px 25px; border-radius: 12px; border: 1px solid #334155; }
         .balance-val { font-size: 32px; font-weight: bold; color: var(--green); }
 
-        /* PANEL CENTRAL */
         .main-panel { background: var(--card); border-radius: 16px; padding: 30px; border: 1px solid #334155; text-align: center; }
-        
         .big-symbol { font-size: 20px; color: #94a3b8; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px; }
-        .big-price { font-size: 72px; font-weight: 800; margin: 10px 0; letter-spacing: -2px; line-height: 1; }
-        .last-update { font-size: 12px; color: #64748b; margin-bottom: 20px; }
-
+        .big-price { font-size: 72px; font-weight: 800; margin: 10px 0; letter-spacing: -2px; line-height: 1; transition: color 0.2s; }
+        
         .signal-banner { font-size: 18px; font-weight: bold; padding: 10px; border-radius: 8px; margin-bottom: 20px; display: inline-block; width: 100%; max-width: 300px; }
-
-        /* OPERACIONES */
+        
         .ops-box { background: #0f172a; padding: 20px; border-radius: 12px; border: 1px solid #334155; max-width: 500px; margin: 0 auto; }
         .pos-info { display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 14px; color: #94a3b8; border-bottom: 1px solid #334155; padding-bottom: 10px; }
         
-        .input-group { display: flex; gap: 10px; }
         .op-input { background: #1e293b; border: 1px solid #475569; color: white; padding: 12px; border-radius: 8px; width: 100%; font-size: 16px; text-align: center; }
-        .btn-buy { background: var(--green); color: black; border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer; flex: 1; font-size: 16px; transition: transform 0.1s; }
-        .btn-sell { background: var(--red); color: white; border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer; flex: 1; font-size: 16px; transition: transform 0.1s; }
-        .btn-buy:active, .btn-sell:active { transform: scale(0.95); }
+        .btn-buy { background: var(--green); color: black; border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer; flex: 1; font-size: 16px; }
+        .btn-sell { background: var(--red); color: white; border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer; flex: 1; font-size: 16px; }
 
-        /* MODAL */
         .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; justify-content: center; align-items: center; z-index: 100; }
         .modal-content { background: var(--card); padding: 40px; border-radius: 16px; width: 320px; text-align: center; border: 1px solid #334155; }
     </style>
@@ -80,12 +65,10 @@
 
         <div class="main-panel">
             <div id="bigSymbol" class="big-symbol">BTC / USDT</div>
-            
             <div id="bigPrice" class="big-price">---</div>
-            <div id="updateTime" class="last-update">Conectando...</div>
             
             <div id="mainSignal" class="signal-banner" style="background:#334155; color:#94a3b8">ESPERANDO SEÑAL</div>
-            <div id="reasons" style="font-size:13px; color:#94a3b8; margin-bottom:20px">...</div>
+            <div id="reasons" style="font-size:13px; color:#94a3b8; margin-bottom:20px">Conectando a Binance Stream...</div>
 
             <div class="ops-box">
                 <div class="pos-info">
@@ -95,7 +78,6 @@
                 
                 <div style="display:flex; gap:10px; margin-bottom:10px;">
                     <input type="number" id="tradeUSDT" class="op-input" placeholder="Monto USDT">
-                    <input type="number" id="tradePrice" class="op-input" placeholder="Precio Real">
                 </div>
                 <div style="display:flex; gap:10px;">
                     <button class="btn-buy" onclick="registerTrade('COMPRA')">COMPRAR</button>
@@ -108,7 +90,10 @@
     <script>
         const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"];
         let currentSymbol = 'BTCUSDT';
-        let marketData = {}; 
+        // Almacenamos precios en tiempo real de TODAS las monedas
+        let livePrices = { "BTCUSDT": 0, "ETHUSDT": 0, "SOLUSDT": 0, "BNBUSDT": 0, "ADAUSDT": 0 };
+        let ws = null; // WebSocket global
+        let analysisInterval = null;
 
         async function startDay() {
             const bal = document.getElementById('startBalance').value;
@@ -118,8 +103,12 @@
                 body: JSON.stringify({ usdt: bal })
             });
             document.getElementById('startModal').style.display = 'none';
+            
             initRadar();
-            startLoops();
+            // Iniciamos conexión WebSocket
+            connectBinanceWS();
+            // Iniciamos bucle de análisis (envía precios al backend)
+            startAnalysisLoop();
         }
 
         function initRadar() {
@@ -137,7 +126,59 @@
                 `;
                 grid.appendChild(div);
             });
-            selectSymbol('BTCUSDT');
+            selectSymbol('BTCUSDT'); // Default
+        }
+
+        function connectBinanceWS() {
+            // Conectamos a un stream combinado de todas las monedas
+            const streams = SYMBOLS.map(s => s.toLowerCase() + "@trade").join("/");
+            const url = `wss://stream.binance.com:9443/ws/${streams}`;
+            
+            ws = new WebSocket(url);
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                const sym = data.s; // Símbolo
+                const price = parseFloat(data.p); // Precio
+                
+                // Actualizamos memoria local
+                livePrices[sym] = price;
+                
+                // Actualizamos UI Radar
+                updateRadarPrice(sym, price);
+                
+                // Si es la moneda principal, actualizamos el precio gigante
+                if(sym === currentSymbol) {
+                    updateMainPrice(price);
+                }
+            };
+            
+            ws.onclose = () => { setTimeout(connectBinanceWS, 5000); }; // Reconnect
+        }
+
+        function updateRadarPrice(sym, price) {
+            const el = document.getElementById(`p-${sym}`);
+            if(el) el.innerText = "$" + price.toLocaleString('en-US', {minimumFractionDigits: 2});
+        }
+
+        function updateMainPrice(price) {
+            const el = document.getElementById('bigPrice');
+            const prev = parseFloat(el.innerText.replace('$','').replace(',',''));
+            
+            el.innerText = "$" + price.toLocaleString('en-US', {minimumFractionDigits: 2});
+            
+            // Efecto visual flash
+            if(prev && price !== prev) {
+                el.style.color = price > prev ? '#22c55e' : '#ef4444';
+                setTimeout(() => el.style.color = '#e2e8f0', 200);
+            }
+            
+            // Actualizar valor de posición en tiempo real
+            const myCoins = parseFloat(document.getElementById('myPos').innerText);
+            if(myCoins > 0) {
+                const val = myCoins * price;
+                document.getElementById('myPosVal').innerText = "$" + val.toLocaleString('en-US', {minimumFractionDigits: 2});
+            }
         }
 
         function selectSymbol(sym) {
@@ -148,94 +189,64 @@
             document.getElementById('bigSymbol').innerText = sym.replace('USDT', ' / USDT');
             document.getElementById('tradeUSDT').value = '';
             
-            // Carga inmediata visual si tenemos datos caché
-            if(marketData[sym]) renderMainView(marketData[sym]);
+            // Reset visual instantáneo con último precio conocido
+            if(livePrices[sym] > 0) updateMainPrice(livePrices[sym]);
             
-            // Forzar actualización de red
-            fetchSymbolData(sym);
+            // Pedir análisis inmediatamente
+            fetchAnalysis(sym);
         }
 
-        function startLoops() {
-            // Actualización rápida (cada 3 segundos)
-            SYMBOLS.forEach(sym => {
-                setInterval(() => fetchSymbolData(sym), 3000); 
-                fetchSymbolData(sym); 
-            });
+        function startAnalysisLoop() {
+            // Cada 3 segundos, enviamos el precio actual al backend para ver qué opina
+            setInterval(() => {
+                SYMBOLS.forEach(sym => {
+                    if(livePrices[sym] > 0) fetchAnalysis(sym);
+                });
+            }, 3000);
         }
 
-        async function fetchSymbolData(sym) {
+        async function fetchAnalysis(sym) {
             try {
-                const res = await fetch(`/analisis?symbol=${sym}`);
+                // ENVIAMOS EL PRECIO REAL AL BACKEND
+                const currentP = livePrices[sym];
+                const res = await fetch(`/analisis?symbol=${sym}&current_price=${currentP}`);
                 const data = await res.json();
                 
-                if(data.error) {
-                    document.getElementById(`s-${sym}`).innerText = "OFF";
-                    return;
+                if(!data.error) {
+                    // Actualizar Señales UI
+                    const sEl = document.getElementById(`s-${sym}`);
+                    let sigText = "NEUTRAL";
+                    let sigClass = "sig-neutral";
+                    
+                    if(data.decision.includes("COMPRA")) { sigText = "COMPRA"; sigClass = "sig-buy"; }
+                    if(data.decision.includes("VENTA")) { sigText = "VENTA"; sigClass = "sig-sell"; }
+                    
+                    sEl.innerText = sigText;
+                    sEl.className = `r-signal ${sigClass}`;
+                    
+                    if(sym === currentSymbol) {
+                        const ms = document.getElementById('mainSignal');
+                        ms.innerText = data.decision;
+                        let bg = "#334155"; let col = "#94a3b8";
+                        if(data.decision.includes("COMPRA")) { bg = "#22c55e"; col = "black"; }
+                        if(data.decision.includes("VENTA")) { bg = "#ef4444"; col = "white"; }
+                        ms.style.background = bg;
+                        ms.style.color = col;
+                        
+                        document.getElementById('reasons').innerText = data.detalles.join(" | ");
+                        document.getElementById('globalBalance').innerText = "$" + data.portfolio.usdt.toLocaleString('en-US', {minimumFractionDigits: 2});
+                        document.getElementById('myPos').innerText = data.portfolio.coin.toFixed(4);
+                    }
                 }
-
-                marketData[sym] = data;
-                updateRadarCard(sym, data);
-                
-                if(sym === currentSymbol) {
-                    renderMainView(data);
-                    // Actualizar input precio solo si está vacío
-                    const priceInput = document.getElementById('tradePrice');
-                    if(priceInput.value === "") priceInput.value = data.precio;
-                }
-            } catch(e) { console.log(e); }
-        }
-
-        function updateRadarCard(sym, data) {
-            const pEl = document.getElementById(`p-${sym}`);
-            const sEl = document.getElementById(`s-${sym}`);
-            
-            // Animación visual de cambio precio
-            const oldPrice = parseFloat(pEl.innerText.replace('$','').replace(',',''));
-            if(oldPrice !== data.precio) {
-                pEl.style.color = data.precio > oldPrice ? '#22c55e' : '#ef4444';
-                setTimeout(() => pEl.style.color = 'white', 500);
-            }
-
-            pEl.innerText = "$" + data.precio.toLocaleString('en-US');
-            
-            let sigText = "NEUTRAL";
-            let sigClass = "sig-neutral";
-            
-            if(data.decision.includes("COMPRA")) { sigText = "COMPRA"; sigClass = "sig-buy"; }
-            if(data.decision.includes("VENTA")) { sigText = "VENTA"; sigClass = "sig-sell"; }
-            
-            sEl.innerText = sigText;
-            sEl.className = `r-signal ${sigClass}`;
-        }
-
-        function renderMainView(data) {
-            document.getElementById('globalBalance').innerText = "$" + data.portfolio.usdt.toLocaleString('en-US', {minimumFractionDigits: 2});
-            
-            // PRECIO GIGANTE
-            document.getElementById('bigPrice').innerText = "$" + data.precio.toLocaleString('en-US', {minimumFractionDigits: 2});
-            document.getElementById('updateTime').innerText = "Actualizado: " + data.update_time;
-            
-            // Señal
-            const ms = document.getElementById('mainSignal');
-            ms.innerText = data.decision;
-            let bg = "#334155"; let col = "#94a3b8";
-            if(data.decision.includes("COMPRA")) { bg = "#22c55e"; col = "black"; }
-            if(data.decision.includes("VENTA")) { bg = "#ef4444"; col = "white"; }
-            ms.style.background = bg;
-            ms.style.color = col;
-
-            document.getElementById('reasons').innerText = data.detalles.join(" | ");
-
-            document.getElementById('myPos').innerText = data.portfolio.coin.toFixed(4);
-            const val = data.portfolio.coin * data.precio;
-            document.getElementById('myPosVal').innerText = "$" + val.toLocaleString('en-US', {minimumFractionDigits: 2});
+            } catch(e) {}
         }
 
         async function registerTrade(action) {
             const amt = document.getElementById('tradeUSDT').value;
-            const prc = document.getElementById('tradePrice').value;
+            // Usamos el precio LIVE real para la operación
+            const prc = livePrices[currentSymbol]; 
             
-            if(!amt || !prc) return alert("Ingresa monto y precio");
+            if(!amt || prc === 0) return alert("Ingresa monto y espera conexión");
 
             const res = await fetch('/registrar_trade', {
                 method: 'POST',
@@ -250,14 +261,9 @@
             const d = await res.json();
             if(d.error) alert(d.error);
             else {
-                // Feedback visual rápido
-                const btn = action === 'COMPRA' ? document.querySelector('.btn-buy') : document.querySelector('.btn-sell');
-                const originalText = btn.innerText;
-                btn.innerText = "¡LISTO!";
-                setTimeout(() => btn.innerText = originalText, 1000);
-                
+                alert("Operación Exitosa a $" + prc);
                 document.getElementById('tradeUSDT').value = "";
-                fetchSymbolData(currentSymbol);
+                fetchAnalysis(currentSymbol);
             }
         }
     </script>

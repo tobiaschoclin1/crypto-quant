@@ -74,29 +74,43 @@ async def registrar_trade(request: Request):
     for s in SYMBOLS: real_portfolio[s]["usdt"] = GLOBAL_USDT
     return {"status": "OK", "nuevo_saldo": GLOBAL_USDT}
 
-# --- NUEVA LÓGICA DE DATOS ---
-
-def obtener_datos_live(symbol):
+# --- LÓGICA DE ALINEACIÓN DE DATOS ---
+def obtener_historial_ajustado(symbol, precio_real_usuario):
     """
-    Obtiene el precio INSTANTÁNEO usando fast_info de Yahoo.
-    Mucho más rápido que descargar el historial de velas.
+    Descarga historial de Yahoo y lo DESPLAZA para que coincida 
+    con el precio real de Binance que envió el usuario.
     """
     yahoo_symbol = symbol.replace("USDT", "-USD")
     ticker = yf.Ticker(yahoo_symbol)
     
     try:
-        # INTENTO 1: Precio tiempo real (Fast Info)
-        precio_actual = ticker.fast_info['last_price']
-        
-        # INTENTO 2: Descargamos historial SOLO para calcular indicadores (RSI/Bollinger)
-        # pero NO para el precio visual.
         df = ticker.history(period="1d", interval="1m", auto_adjust=True)
-        
-        return precio_actual, df
-        
+        if df.empty:
+            df = ticker.history(period="1d", interval="5m", auto_adjust=True)
+
+        if not df.empty and precio_real_usuario > 0:
+            # ALINEACIÓN MÁGICA:
+            # Calculamos la diferencia entre el dato viejo de Yahoo y el real de Binance
+            ultimo_cierre_yahoo = df['Close'].iloc[-1]
+            diferencia = precio_real_usuario - ultimo_cierre_yahoo
+            
+            # Ajustamos TODO el historial sumando esa diferencia.
+            # Así preservamos la forma de la curva (tendencia) pero en el nivel de precio correcto.
+            df['Close'] += diferencia
+            df['Open'] += diferencia
+            df['High'] += diferencia
+            df['Low'] += diferencia
+            
+            # Formateo
+            df = df.reset_index()
+            df = df.rename(columns={"Close": "c", "High": "h", "Low": "l", "Open": "o", "Volume": "v"})
+            return df
+            
     except Exception as e:
         print(f"Error data {symbol}: {e}")
-        return 0.0, pd.DataFrame()
+        pass
+
+    return pd.DataFrame()
 
 def calcular_indicadores(df):
     if len(df) < 5: return df 
@@ -112,40 +126,36 @@ def calcular_indicadores(df):
     return df
 
 @app.get("/analisis")
-async def get_analisis(symbol: str = "BTCUSDT"):
+async def get_analisis(symbol: str = "BTCUSDT", current_price: float = 0.0):
     global market_data_cache, real_portfolio
     if symbol not in SYMBOLS: symbol = "BTCUSDT"
     
-    # Ejecutamos en hilo paralelo
-    precio_live, df = await run_in_threadpool(obtener_datos_live, symbol)
-    
-    # Fallback de seguridad
-    if precio_live == 0 and not df.empty:
-        precio_live = df.iloc[-1]['Close']
-    
-    if precio_live == 0: 
+    # Usamos el precio que nos manda el frontend (Binance Real)
+    if current_price <= 0:
+        # Si por alguna razón llega 0, intentamos usar caché o Yahoo directo
         cached = market_data_cache.get(symbol)
-        if cached: return cached 
+        if cached: current_price = cached["precio"]
+    
+    # Obtenemos historial ajustado al precio real
+    df = await run_in_threadpool(obtener_historial_ajustado, symbol, current_price)
+    
+    if df.empty and current_price == 0: 
         return {"error": True, "mensaje": "Sin conexión", "portfolio": real_portfolio[symbol]}
     
-    # Calculamos señales (usando el historial, que es necesario para RSI)
-    # Pero el precio que mostramos es el LIVE
+    # Si no hay historial pero tenemos precio, mostramos solo precio
     signal = "NEUTRAL"
     reasons = []
     
     if not df.empty:
-        # Renombrar columnas para compatibilidad
-        df = df.reset_index()
-        df = df.rename(columns={"Close": "c", "High": "h", "Low": "l"})
         df = calcular_indicadores(df)
         current = df.iloc[-1]
         
         # LÓGICA DE SEÑALES
         pf = real_portfolio[symbol]
         
-        # Gestión Riesgo (Usamos precio LIVE)
+        # Gestión Riesgo
         if pf["coin"] > 0 and pf["avg_price"] > 0:
-            pnl = (precio_live - pf["avg_price"]) / pf["avg_price"]
+            pnl = (current_price - pf["avg_price"]) / pf["avg_price"]
             if pnl <= -STOP_LOSS_PCT:
                 signal = "VENTA FUERTE"
                 reasons.append(f"🛑 STOP LOSS ({pnl*100:.2f}%)")
@@ -155,22 +165,21 @@ async def get_analisis(symbol: str = "BTCUSDT"):
                 
         if signal == "NEUTRAL":
             try:
-                # Usamos los indicadores del último cierre, pero comparamos con precio live
-                if precio_live <= current['lower'] and current['rsi'] < 30:
+                if current_price <= current['lower'] and current['rsi'] < 30:
                     if pf["coin"] == 0:
                         signal = "COMPRA"
                         reasons.append("Soporte + RSI Bajo")
-                elif (precio_live >= current['upper'] or current['rsi'] > 70):
+                elif (current_price >= current['upper'] or current['rsi'] > 70):
                     if pf["coin"] > 0:
                         signal = "VENTA"
                         reasons.append("Techo + RSI Alto")
             except: pass
     else:
-        reasons.append("Solo Precio (Sin historial)")
+        reasons.append("Esperando historial...")
 
     res = {
         "symbol": symbol, 
-        "precio": precio_live, # <--- ESTE ES EL PRECIO RÁPIDO
+        "precio": current_price, 
         "decision": signal, 
         "detalles": reasons,
         "portfolio": real_portfolio[symbol], 
