@@ -21,7 +21,7 @@ TELEGRAM_CHAT_ID = "793016927"
 # --------------------
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
-GLOBAL_USDT = 0.0
+GLOBAL_USDT = 0.0 # Iniciamos en 0 hasta que el usuario lo cambie
 real_portfolio = {
     sym: {"usdt": 0.0, "coin": 0.0, "avg_price": 0.0} 
     for sym in SYMBOLS
@@ -35,11 +35,10 @@ async def set_balance(request: Request):
     global GLOBAL_USDT, real_portfolio
     data = await request.json()
     GLOBAL_USDT = float(data.get("usdt", 0))
+    # Actualizamos el saldo disponible en todas las carteras
     for sym in SYMBOLS:
         real_portfolio[sym]["usdt"] = GLOBAL_USDT
-        real_portfolio[sym]["coin"] = 0.0
-        real_portfolio[sym]["avg_price"] = 0.0
-    return {"status": "Turno iniciado", "usdt": GLOBAL_USDT}
+    return {"status": "Saldo Actualizado", "usdt": GLOBAL_USDT}
 
 @app.post("/registrar_trade")
 async def registrar_trade(request: Request):
@@ -57,7 +56,7 @@ async def registrar_trade(request: Request):
     crypto_amount = usdt_amount / price
     
     if action == "COMPRA":
-        if GLOBAL_USDT < usdt_amount: return {"error": "Saldo insuficiente"}
+        # Permitimos comprar aunque el saldo local sea bajo (ajuste manual)
         total_coins = pf["coin"] + crypto_amount
         total_cost = (pf["coin"] * pf["avg_price"]) + usdt_amount
         pf["avg_price"] = total_cost / total_coins if total_coins > 0 else price
@@ -65,7 +64,7 @@ async def registrar_trade(request: Request):
         GLOBAL_USDT -= usdt_amount
         
     elif action == "VENTA":
-        if pf["coin"] * price < usdt_amount * 0.99: return {"error": "No tienes suficiente crypto"}
+        # Venta total o parcial
         pf["coin"] -= crypto_amount
         if pf["coin"] < 0: pf["coin"] = 0
         GLOBAL_USDT += usdt_amount
@@ -76,10 +75,6 @@ async def registrar_trade(request: Request):
 
 # --- LÓGICA DE ALINEACIÓN DE DATOS ---
 def obtener_historial_ajustado(symbol, precio_real_usuario):
-    """
-    Descarga historial de Yahoo y lo DESPLAZA para que coincida 
-    con el precio real de Binance que envió el usuario.
-    """
     yahoo_symbol = symbol.replace("USDT", "-USD")
     ticker = yf.Ticker(yahoo_symbol)
     
@@ -89,27 +84,20 @@ def obtener_historial_ajustado(symbol, precio_real_usuario):
             df = ticker.history(period="1d", interval="5m", auto_adjust=True)
 
         if not df.empty and precio_real_usuario > 0:
-            # ALINEACIÓN MÁGICA:
-            # Calculamos la diferencia entre el dato viejo de Yahoo y el real de Binance
+            # Alineamos la curva de Yahoo al precio real de Binance
             ultimo_cierre_yahoo = df['Close'].iloc[-1]
             diferencia = precio_real_usuario - ultimo_cierre_yahoo
             
-            # Ajustamos TODO el historial sumando esa diferencia.
-            # Así preservamos la forma de la curva (tendencia) pero en el nivel de precio correcto.
             df['Close'] += diferencia
             df['Open'] += diferencia
             df['High'] += diferencia
             df['Low'] += diferencia
             
-            # Formateo
             df = df.reset_index()
             df = df.rename(columns={"Close": "c", "High": "h", "Low": "l", "Open": "o", "Volume": "v"})
             return df
             
-    except Exception as e:
-        print(f"Error data {symbol}: {e}")
-        pass
-
+    except Exception as e: pass
     return pd.DataFrame()
 
 def calcular_indicadores(df):
@@ -130,30 +118,22 @@ async def get_analisis(symbol: str = "BTCUSDT", current_price: float = 0.0):
     global market_data_cache, real_portfolio
     if symbol not in SYMBOLS: symbol = "BTCUSDT"
     
-    # Usamos el precio que nos manda el frontend (Binance Real)
+    # Si viene precio 0, intentamos usar caché
     if current_price <= 0:
-        # Si por alguna razón llega 0, intentamos usar caché o Yahoo directo
         cached = market_data_cache.get(symbol)
         if cached: current_price = cached["precio"]
     
-    # Obtenemos historial ajustado al precio real
     df = await run_in_threadpool(obtener_historial_ajustado, symbol, current_price)
     
-    if df.empty and current_price == 0: 
-        return {"error": True, "mensaje": "Sin conexión", "portfolio": real_portfolio[symbol]}
-    
-    # Si no hay historial pero tenemos precio, mostramos solo precio
     signal = "NEUTRAL"
     reasons = []
     
     if not df.empty:
         df = calcular_indicadores(df)
         current = df.iloc[-1]
-        
-        # LÓGICA DE SEÑALES
         pf = real_portfolio[symbol]
         
-        # Gestión Riesgo
+        # 1. Chequeo de Tenencia (Stop Loss / Take Profit)
         if pf["coin"] > 0 and pf["avg_price"] > 0:
             pnl = (current_price - pf["avg_price"]) / pf["avg_price"]
             if pnl <= -STOP_LOSS_PCT:
@@ -163,14 +143,18 @@ async def get_analisis(symbol: str = "BTCUSDT", current_price: float = 0.0):
                 signal = "VENTA FUERTE"
                 reasons.append(f"💰 TAKE PROFIT ({pnl*100:.2f}%)")
                 
+        # 2. Análisis Técnico
         if signal == "NEUTRAL":
             try:
-                if current_price <= current['lower'] and current['rsi'] < 30:
-                    if pf["coin"] == 0:
+                # Si NO tengo moneda -> Busco COMPRAS
+                if pf["coin"] == 0:
+                    if current_price <= current['lower'] and current['rsi'] < 35: # RSI < 35 un poco mas flexible
                         signal = "COMPRA"
                         reasons.append("Soporte + RSI Bajo")
-                elif (current_price >= current['upper'] or current['rsi'] > 70):
-                    if pf["coin"] > 0:
+                
+                # Si SI tengo moneda -> Busco VENTAS TÉCNICAS
+                elif pf["coin"] > 0:
+                    if (current_price >= current['upper'] or current['rsi'] > 70):
                         signal = "VENTA"
                         reasons.append("Techo + RSI Alto")
             except: pass
