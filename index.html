@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trading Radar</title>
+    <title>Trading Radar V3 (Lite)</title>
     <style>
         :root { --bg: #0f172a; --card: #1e293b; --text: #e2e8f0; --accent: #3b82f6; --green: #22c55e; --red: #ef4444; }
         body { background-color: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; margin: 0; padding: 15px; display: flex; flex-direction: column; align-items: center; }
@@ -39,7 +39,8 @@
         .op-input { background: #0f172a; border: 1px solid #475569; color: white; padding: 10px; border-radius: 6px; width: 100%; font-size: 14px; }
         .btn-buy { background: var(--green); color: black; border: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; flex: 1; }
         .btn-sell { background: var(--red); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; flex: 1; }
-        .chart-img { width: 100%; height: 300px; object-fit: contain; background: #020617; border-radius: 8px; }
+        
+        .big-price { font-size: 48px; font-weight: 800; text-align: center; margin: 20px 0; letter-spacing: -1px; }
 
         .chat-box { height: 400px; display: flex; flex-direction: column; background: #0f172a; border-radius: 8px; overflow: hidden; border: 1px solid #334155; }
         .chat-msgs { flex: 1; padding: 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
@@ -87,7 +88,8 @@
                     <span id="mainSignal" class="r-signal sig-neutral">ESPERANDO</span>
                 </div>
                 
-                <img id="chart" class="chart-img" src="" alt="Gráfico">
+                <div id="bigPriceDisplay" class="big-price">---</div>
+                <div style="text-align:center; color:#94a3b8; font-size:12px; margin-bottom:20px" id="reasons">...</div>
 
                 <div style="background:#0f172a; padding:15px; border-radius:8px; border:1px solid #334155">
                     <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:12px; color:#94a3b8">
@@ -164,28 +166,24 @@
             document.getElementById('chartTitle').innerText = sym.replace('USDT', ' / USDT');
             document.getElementById('tradeUSDT').value = '';
             
-            if(marketData[sym]) {
-                renderMainView(marketData[sym]);
-                // Pre-fill precio con el último conocido
-                document.getElementById('tradePrice').value = marketData[sym].precio;
-            }
+            // Forzar actualización inmediata para la nueva selección
+            fetchSymbolData(sym);
         }
 
         function startLoops() {
-            // Un bucle independiente para cada moneda para evitar que una bloquee a otra
             SYMBOLS.forEach(sym => {
-                setInterval(() => fetchSymbolData(sym), 5000); // Cada 5s
-                fetchSymbolData(sym); // Primera carga inmediata
+                setInterval(() => fetchSymbolData(sym), 5000); 
+                fetchSymbolData(sym); 
             });
         }
 
         async function fetchSymbolData(sym) {
             try {
+                // Ya no pedimos gráfico
                 const res = await fetch(`/analisis?symbol=${sym}`);
                 const data = await res.json();
                 
                 if(data.error) {
-                    // Marcar error visual en radar si falla
                     document.getElementById(`s-${sym}`).innerText = "OFF";
                     return;
                 }
@@ -195,7 +193,6 @@
                 
                 if(sym === currentSymbol) {
                     renderMainView(data);
-                    // Actualizar el input de precio SOLO si está vacío para no molestar al usuario
                     const priceInput = document.getElementById('tradePrice');
                     if(priceInput.value === "") priceInput.value = data.precio;
                 }
@@ -228,7 +225,9 @@
             document.getElementById('chartTitle').innerText = currentSymbol.replace('USDT', ' / USDT');
             document.getElementById('globalBalance').innerText = "$" + data.portfolio.usdt.toLocaleString('en-US', {minimumFractionDigits: 2});
             
-            if(data.grafico) document.getElementById('chart').src = data.grafico;
+            // ACTUALIZACIÓN: Precio Gigante
+            document.getElementById('bigPriceDisplay').innerText = "$" + data.precio.toLocaleString('en-US', {minimumFractionDigits: 2});
+            document.getElementById('reasons').innerText = data.detalles.join(" | ");
             
             const ms = document.getElementById('mainSignal');
             ms.innerText = data.decision;
@@ -264,7 +263,6 @@
             }
         }
 
-        // Chat
         function handleEnter(e) { if(e.key === 'Enter') sendChat(); }
         async function sendChat() {
             const input = document.getElementById('chatInput');
@@ -272,7 +270,7 @@
             if(!txt) return;
             
             const box = document.getElementById('chatBody');
-            box.innerHTML += `<div class="msg user">${txt}</div>`;
+            box.innerHTML += `<div class=\"msg user\">${txt}</div>`;
             input.value = '';
             
             const res = await fetch('/chat', {
@@ -281,7 +279,7 @@
                 body: JSON.stringify({ message: txt, symbol: currentSymbol })
             });
             const d = await res.json();
-            box.innerHTML += `<div class="msg bot">${d.reply}</div>`;
+            box.innerHTML += `<div class=\"msg bot\">${d.reply}</div>`;
             box.scrollTop = box.scrollHeight;
         }
     </script>

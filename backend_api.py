@@ -1,19 +1,12 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.concurrency import run_in_threadpool
 import uvicorn
-import numpy as np
 import pandas as pd
-import io
-import base64
 import os
-import matplotlib
-matplotlib.use('Agg') 
-import matplotlib.pyplot as plt
 from datetime import datetime
 import pytz 
-
-# --- LIBRERÍA SALVAVIDAS ---
 import yfinance as yf 
 
 app = FastAPI()
@@ -25,7 +18,7 @@ app.add_middleware(
 # --- CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
-GEMINI_API_KEY = "AIzaSyBmeV-fa7Buf2EKoVzRSm-PF6R8tJF2E9c" 
+GEMINI_API_KEY = "PEGA_TU_CLAVE_AQUI" 
 # --------------------
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
@@ -83,41 +76,26 @@ async def registrar_trade(request: Request):
     for s in SYMBOLS: real_portfolio[s]["usdt"] = GLOBAL_USDT
     return {"status": "OK", "nuevo_saldo": GLOBAL_USDT}
 
-# --- FUNCIÓN OBTENER DATOS V3 (CON YFINANCE) ---
 def obtener_datos(symbol):
-    # Traducir símbolos de Binance (BTCUSDT) a Yahoo (BTC-USD)
     yahoo_symbol = symbol.replace("USDT", "-USD")
-    
     try:
-        # Usamos la librería oficial que gestiona los bloqueos sola
         ticker = yf.Ticker(yahoo_symbol)
-        
-        # Pedimos historial de 1 día con intervalos de 1 minuto
-        # 'auto_adjust=True' ayuda a limpiar datos raros
         df = ticker.history(period="1d", interval="1m", auto_adjust=True)
-        
         if df.empty:
-            # Plan B: Si falla 1m, pedimos 5m (a veces Yahoo restringe el 1m)
             df = ticker.history(period="1d", interval="5m", auto_adjust=True)
 
         if not df.empty:
-            # Yahoo devuelve el índice como Fecha, lo pasamos a columna
             df = df.reset_index()
-            # Renombramos columnas para que coincida con tu lógica
             df = df.rename(columns={
                 "Date": "t", "Datetime": "t", 
                 "Open": "o", "High": "h", "Low": "l", "Close": "c", "Volume": "v"
             })
             return df
-            
-    except Exception as e:
-        print(f"Error YFinance {symbol}: {e}")
-        pass
-
+    except Exception as e: pass
     return pd.DataFrame()
 
 def calcular_indicadores(df):
-    if len(df) < 5: return df # Protección contra datos insuficientes
+    if len(df) < 5: return df 
     df['sma20'] = df['c'].rolling(window=20).mean()
     df['std20'] = df['c'].rolling(window=20).std()
     df['upper'] = df['sma20'] + (df['std20'] * 2)
@@ -129,41 +107,17 @@ def calcular_indicadores(df):
     df['rsi'] = 100 - (100 / (1 + rs))
     return df
 
-def generar_grafico(df):
-    if df.empty: return ""
-    try:
-        plt.style.use('dark_background')
-        fig, ax = plt.subplots(figsize=(10, 5), dpi=100)
-        data = df['c'].tail(60)
-        upper = df['upper'].tail(60)
-        lower = df['lower'].tail(60)
-        x = range(len(data))
-        ax.plot(x, data, color='#22d3ee', linewidth=2)
-        ax.plot(x, upper, color='#a78bfa', alpha=0.5)
-        ax.plot(x, lower, color='#a78bfa', alpha=0.5)
-        ax.fill_between(x, upper, lower, color='#a78bfa', alpha=0.05)
-        ax.axis('off'); ax.grid(False)
-        buf = io.BytesIO()
-        fig.savefig(buf, format='png', bbox_inches='tight', transparent=True)
-        plt.close(fig)
-        buf.seek(0)
-        return f"data:image/png;base64,{base64.b64encode(buf.read()).decode('utf-8')}"
-    except: return ""
-
 @app.get("/analisis")
-def get_analisis(symbol: str = "BTCUSDT"):
+async def get_analisis(symbol: str = "BTCUSDT"):
     global market_data_cache, real_portfolio
     if symbol not in SYMBOLS: symbol = "BTCUSDT"
     
-    df = obtener_datos(symbol)
+    # Ejecutamos la descarga de datos en paralelo para no bloquear
+    df = await run_in_threadpool(obtener_datos, symbol)
     
     if df.empty: 
-        # CACHÉ DE EMERGENCIA: Si falla internet, usamos el último dato conocido
-        # para que la pantalla no se quede en negro.
         cached = market_data_cache.get(symbol)
-        if cached: 
-            cached["decision"] = "⚠️ DATA CACHÉ" # Aviso visual
-            return cached 
+        if cached: return cached 
         return {"error": True, "mensaje": "Sin conexión", "portfolio": real_portfolio[symbol]}
     
     df = calcular_indicadores(df)
@@ -184,7 +138,6 @@ def get_analisis(symbol: str = "BTCUSDT"):
             reasons.append(f"💰 TAKE PROFIT ({pnl*100:.2f}%)")
             
     if signal == "NEUTRAL":
-        # Usamos try/except por si el RSI no se calculó (pocas velas)
         try:
             if precio <= current['lower'] and current['rsi'] < 30:
                 if pf["coin"] == 0:
@@ -198,14 +151,12 @@ def get_analisis(symbol: str = "BTCUSDT"):
 
     res = {
         "symbol": symbol, "precio": precio, "decision": signal, "detalles": reasons,
-        "grafico": generar_grafico(df), "portfolio": pf, 
-        "update_time": datetime.now().strftime("%H:%M:%S")
+        "portfolio": pf, "update_time": datetime.now().strftime("%H:%M:%S")
     }
     market_data_cache[symbol] = res
     return res
 
-# Chat IA (Sin cambios)
-import requests # Importamos requests solo para la IA
+import requests
 @app.post("/chat")
 async def chat_with_ai(request: Request):
     global valid_model_name, GLOBAL_USDT
