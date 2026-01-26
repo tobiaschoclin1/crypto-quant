@@ -21,7 +21,7 @@ TELEGRAM_CHAT_ID = "793016927"
 # --------------------
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
-GLOBAL_USDT = 0.0 # Iniciamos en 0 hasta que el usuario lo cambie
+GLOBAL_USDT = 0.0 
 real_portfolio = {
     sym: {"usdt": 0.0, "coin": 0.0, "avg_price": 0.0} 
     for sym in SYMBOLS
@@ -35,7 +35,7 @@ async def set_balance(request: Request):
     global GLOBAL_USDT, real_portfolio
     data = await request.json()
     GLOBAL_USDT = float(data.get("usdt", 0))
-    # Actualizamos el saldo disponible en todas las carteras
+    # Sincronizamos el USDT en todos los pares
     for sym in SYMBOLS:
         real_portfolio[sym]["usdt"] = GLOBAL_USDT
     return {"status": "Saldo Actualizado", "usdt": GLOBAL_USDT}
@@ -46,57 +46,65 @@ async def registrar_trade(request: Request):
     data = await request.json()
     symbol = data.get("symbol")
     action = data.get("action")
-    usdt_amount = float(data.get("usdt_amount", 0))
-    price = float(data.get("price", 0))
+    amount = float(data.get("amount", 0)) # Puede ser USDT o MONEDA
+    price = float(data.get("price", 0))   # PRECIO MANUAL EXACTO
     
     if symbol not in real_portfolio: return {"error": "Moneda no válida"}
     if price <= 0: return {"error": "Precio inválido"}
+    if amount <= 0: return {"error": "Cantidad inválida"}
 
     pf = real_portfolio[symbol]
-    crypto_amount = usdt_amount / price
     
     if action == "COMPRA":
-        # Permitimos comprar aunque el saldo local sea bajo (ajuste manual)
-        total_coins = pf["coin"] + crypto_amount
-        total_cost = (pf["coin"] * pf["avg_price"]) + usdt_amount
+        # Aquí 'amount' es USDT (Dólares que gastaste)
+        usdt_spend = amount
+        if GLOBAL_USDT < usdt_spend: return {"error": "Saldo USDT insuficiente"}
+        
+        # El sistema calcula cuántas monedas te dieron
+        crypto_received = usdt_spend / price
+        
+        total_coins = pf["coin"] + crypto_received
+        total_cost = (pf["coin"] * pf["avg_price"]) + usdt_spend
         pf["avg_price"] = total_cost / total_coins if total_coins > 0 else price
-        pf["coin"] += crypto_amount
-        GLOBAL_USDT -= usdt_amount
+        pf["coin"] += crypto_received
+        GLOBAL_USDT -= usdt_spend
         
     elif action == "VENTA":
-        # Venta total o parcial
-        pf["coin"] -= crypto_amount
+        # Aquí 'amount' es CANTIDAD DE CRIPTO (Monedas que vendiste)
+        crypto_spend = amount
+        if pf["coin"] < crypto_spend * 0.9999: return {"error": "No tienes suficientes monedas"}
+        
+        # El sistema calcula cuántos dólares recibiste
+        usdt_received = crypto_spend * price
+        
+        pf["coin"] -= crypto_spend
         if pf["coin"] < 0: pf["coin"] = 0
-        GLOBAL_USDT += usdt_amount
+        GLOBAL_USDT += usdt_received
         if pf["coin"] <= 0.000001: pf["avg_price"] = 0.0 
         
+    # Sincronizar saldo USDT global
     for s in SYMBOLS: real_portfolio[s]["usdt"] = GLOBAL_USDT
-    return {"status": "OK", "nuevo_saldo": GLOBAL_USDT}
+    
+    return {"status": "OK", "nuevo_saldo": GLOBAL_USDT, "portfolio": real_portfolio}
 
 # --- LÓGICA DE ALINEACIÓN DE DATOS ---
 def obtener_historial_ajustado(symbol, precio_real_usuario):
     yahoo_symbol = symbol.replace("USDT", "-USD")
     ticker = yf.Ticker(yahoo_symbol)
-    
     try:
         df = ticker.history(period="1d", interval="1m", auto_adjust=True)
         if df.empty:
             df = ticker.history(period="1d", interval="5m", auto_adjust=True)
-
         if not df.empty and precio_real_usuario > 0:
-            # Alineamos la curva de Yahoo al precio real de Binance
             ultimo_cierre_yahoo = df['Close'].iloc[-1]
             diferencia = precio_real_usuario - ultimo_cierre_yahoo
-            
             df['Close'] += diferencia
             df['Open'] += diferencia
             df['High'] += diferencia
             df['Low'] += diferencia
-            
             df = df.reset_index()
             df = df.rename(columns={"Close": "c", "High": "h", "Low": "l", "Open": "o", "Volume": "v"})
             return df
-            
     except Exception as e: pass
     return pd.DataFrame()
 
@@ -118,7 +126,6 @@ async def get_analisis(symbol: str = "BTCUSDT", current_price: float = 0.0):
     global market_data_cache, real_portfolio
     if symbol not in SYMBOLS: symbol = "BTCUSDT"
     
-    # Si viene precio 0, intentamos usar caché
     if current_price <= 0:
         cached = market_data_cache.get(symbol)
         if cached: current_price = cached["precio"]
@@ -133,7 +140,7 @@ async def get_analisis(symbol: str = "BTCUSDT", current_price: float = 0.0):
         current = df.iloc[-1]
         pf = real_portfolio[symbol]
         
-        # 1. Chequeo de Tenencia (Stop Loss / Take Profit)
+        # Estrategia
         if pf["coin"] > 0 and pf["avg_price"] > 0:
             pnl = (current_price - pf["avg_price"]) / pf["avg_price"]
             if pnl <= -STOP_LOSS_PCT:
@@ -143,16 +150,12 @@ async def get_analisis(symbol: str = "BTCUSDT", current_price: float = 0.0):
                 signal = "VENTA FUERTE"
                 reasons.append(f"💰 TAKE PROFIT ({pnl*100:.2f}%)")
                 
-        # 2. Análisis Técnico
         if signal == "NEUTRAL":
             try:
-                # Si NO tengo moneda -> Busco COMPRAS
                 if pf["coin"] == 0:
-                    if current_price <= current['lower'] and current['rsi'] < 35: # RSI < 35 un poco mas flexible
+                    if current_price <= current['lower'] and current['rsi'] < 35:
                         signal = "COMPRA"
                         reasons.append("Soporte + RSI Bajo")
-                
-                # Si SI tengo moneda -> Busco VENTAS TÉCNICAS
                 elif pf["coin"] > 0:
                     if (current_price >= current['upper'] or current['rsi'] > 70):
                         signal = "VENTA"
@@ -166,7 +169,7 @@ async def get_analisis(symbol: str = "BTCUSDT", current_price: float = 0.0):
         "precio": current_price, 
         "decision": signal, 
         "detalles": reasons,
-        "portfolio": real_portfolio[symbol], 
+        "portfolio": real_portfolio, 
         "update_time": datetime.now().strftime("%H:%M:%S")
     }
     market_data_cache[symbol] = res
