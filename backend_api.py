@@ -23,7 +23,7 @@ app.add_middleware(
 # --- CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
-GEMINI_API_KEY = "AIzaSyBmeV-fa7Buf2EKoVzRSm-PF6R8tJF2E9c" 
+GEMINI_API_KEY = "PEGA_TU_CLAVE_AQUI" 
 # --------------------
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
@@ -36,8 +36,12 @@ market_data_cache = {}
 valid_model_name = None
 STOP_LOSS_PCT = 0.01 
 TAKE_PROFIT_PCT = 0.015
+
+# Cabeceras para parecer un navegador real
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5"
 }
 
 @app.post("/set_balance")
@@ -84,9 +88,9 @@ async def registrar_trade(request: Request):
     for s in SYMBOLS: real_portfolio[s]["usdt"] = GLOBAL_USDT
     return {"status": "OK", "nuevo_saldo": GLOBAL_USDT}
 
-# --- FUNCIÓN BLINDADA MULTI-EXCHANGE ---
+# --- FUNCIÓN "TODOTERRENO" (BINANCE -> BYBIT -> YAHOO) ---
 def obtener_datos(symbol):
-    # 1. INTENTO BINANCE
+    # 1. INTENTO BINANCE (Rápido)
     try:
         url = "https://api.binance.com/api/v3/klines"
         params = {"symbol": symbol, "interval": "1m", "limit": 100}
@@ -95,22 +99,48 @@ def obtener_datos(symbol):
             df = pd.DataFrame(r.json(), columns=['t', 'o', 'h', 'l', 'c', 'v', 'x', 'x', 'x', 'x', 'x', 'x'])
             for c in ['o', 'h', 'l', 'c', 'v']: df[c] = df[c].astype(float)
             return df
-    except: pass # Si falla, seguimos silenciosamente
+    except: pass 
 
-    # 2. INTENTO BYBIT (El salvavidas)
+    # 2. INTENTO BYBIT (Respaldo)
     try:
-        # Bybit API v5
         url = "https://api.bybit.com/v5/market/kline"
         params = {"category": "spot", "symbol": symbol, "interval": "1", "limit": 100}
         r = requests.get(url, params=params, headers=HEADERS, timeout=2)
         if r.status_code == 200:
             data = r.json()['result']['list']
-            # Bybit devuelve al revés (nuevo -> viejo). Invertimos.
             df = pd.DataFrame(data, columns=['t', 'o', 'h', 'l', 'c', 'v', 'to'])
             df = df.iloc[::-1].reset_index(drop=True)
             for c in ['o', 'h', 'l', 'c', 'v']: df[c] = df[c].astype(float)
             return df
     except: pass
+
+    # 3. INTENTO YAHOO FINANCE (El Tanque - Lento pero seguro)
+    try:
+        # Mapeo de símbolos para Yahoo
+        y_sym = symbol.replace("USDT", "-USD") # Ej: BTC-USD
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{y_sym}"
+        params = {"interval": "1m", "range": "1d"} # Pedimos 1 día de datos en 1m
+        r = requests.get(url, params=params, headers=HEADERS, timeout=3)
+        
+        if r.status_code == 200:
+            data = r.json()['chart']['result'][0]
+            quotes = data['indicators']['quote'][0]
+            timestamps = data['timestamp']
+            
+            df = pd.DataFrame({
+                't': timestamps,
+                'o': quotes['open'],
+                'h': quotes['high'],
+                'l': quotes['low'],
+                'c': quotes['close'],
+                'v': quotes['volume']
+            })
+            # Yahoo a veces devuelve nulos al final, limpiamos
+            df = df.dropna()
+            return df.tail(100) # Devolvemos las ultimas 100
+    except Exception as e: 
+        print(f"Yahoo error: {e}")
+        pass
 
     # Si todo falla, devolvemos vacío
     return pd.DataFrame()
@@ -155,11 +185,12 @@ def get_analisis(symbol: str = "BTCUSDT"):
     if symbol not in SYMBOLS: symbol = "BTCUSDT"
     
     df = obtener_datos(symbol)
+    
+    # Si sigue vacío después de los 3 intentos, es el fin del mundo (o Render no tiene internet)
     if df.empty: 
-        # Si fallan Binance Y Bybit, mostramos cache antigua o error
         cached = market_data_cache.get(symbol)
-        if cached: return cached # Mejor mostrar dato viejo que nada
-        return {"error": True, "mensaje": "Sin data", "portfolio": real_portfolio[symbol]}
+        if cached: return cached 
+        return {"error": True, "mensaje": "Sin conexión", "portfolio": real_portfolio[symbol]}
     
     df = calcular_indicadores(df)
     current = df.iloc[-1]
