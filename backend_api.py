@@ -18,7 +18,6 @@ app.add_middleware(
 # --- CREDENCIALES ---
 TELEGRAM_TOKEN = "8352173352:AAF1EuGRmTdbyDD_edQodfp3UPPeTWqqgwA" 
 TELEGRAM_CHAT_ID = "793016927"
-GEMINI_API_KEY = "PEGA_TU_CLAVE_AQUI" 
 # --------------------
 
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
@@ -28,7 +27,6 @@ real_portfolio = {
     for sym in SYMBOLS
 }
 market_data_cache = {} 
-valid_model_name = None
 STOP_LOSS_PCT = 0.01 
 TAKE_PROFIT_PCT = 0.015
 
@@ -76,23 +74,29 @@ async def registrar_trade(request: Request):
     for s in SYMBOLS: real_portfolio[s]["usdt"] = GLOBAL_USDT
     return {"status": "OK", "nuevo_saldo": GLOBAL_USDT}
 
-def obtener_datos(symbol):
-    yahoo_symbol = symbol.replace("USDT", "-USD")
-    try:
-        ticker = yf.Ticker(yahoo_symbol)
-        df = ticker.history(period="1d", interval="1m", auto_adjust=True)
-        if df.empty:
-            df = ticker.history(period="1d", interval="5m", auto_adjust=True)
+# --- NUEVA LÓGICA DE DATOS ---
 
-        if not df.empty:
-            df = df.reset_index()
-            df = df.rename(columns={
-                "Date": "t", "Datetime": "t", 
-                "Open": "o", "High": "h", "Low": "l", "Close": "c", "Volume": "v"
-            })
-            return df
-    except Exception as e: pass
-    return pd.DataFrame()
+def obtener_datos_live(symbol):
+    """
+    Obtiene el precio INSTANTÁNEO usando fast_info de Yahoo.
+    Mucho más rápido que descargar el historial de velas.
+    """
+    yahoo_symbol = symbol.replace("USDT", "-USD")
+    ticker = yf.Ticker(yahoo_symbol)
+    
+    try:
+        # INTENTO 1: Precio tiempo real (Fast Info)
+        precio_actual = ticker.fast_info['last_price']
+        
+        # INTENTO 2: Descargamos historial SOLO para calcular indicadores (RSI/Bollinger)
+        # pero NO para el precio visual.
+        df = ticker.history(period="1d", interval="1m", auto_adjust=True)
+        
+        return precio_actual, df
+        
+    except Exception as e:
+        print(f"Error data {symbol}: {e}")
+        return 0.0, pd.DataFrame()
 
 def calcular_indicadores(df):
     if len(df) < 5: return df 
@@ -112,75 +116,68 @@ async def get_analisis(symbol: str = "BTCUSDT"):
     global market_data_cache, real_portfolio
     if symbol not in SYMBOLS: symbol = "BTCUSDT"
     
-    # Ejecutamos la descarga de datos en paralelo para no bloquear
-    df = await run_in_threadpool(obtener_datos, symbol)
+    # Ejecutamos en hilo paralelo
+    precio_live, df = await run_in_threadpool(obtener_datos_live, symbol)
     
-    if df.empty: 
+    # Fallback de seguridad
+    if precio_live == 0 and not df.empty:
+        precio_live = df.iloc[-1]['Close']
+    
+    if precio_live == 0: 
         cached = market_data_cache.get(symbol)
         if cached: return cached 
         return {"error": True, "mensaje": "Sin conexión", "portfolio": real_portfolio[symbol]}
     
-    df = calcular_indicadores(df)
-    current = df.iloc[-1]
-    precio = current['c']
-    pf = real_portfolio[symbol]
-    
+    # Calculamos señales (usando el historial, que es necesario para RSI)
+    # Pero el precio que mostramos es el LIVE
     signal = "NEUTRAL"
     reasons = []
     
-    if pf["coin"] > 0 and pf["avg_price"] > 0:
-        pnl = (precio - pf["avg_price"]) / pf["avg_price"]
-        if pnl <= -STOP_LOSS_PCT:
-            signal = "VENTA FUERTE"
-            reasons.append(f"🛑 STOP LOSS ({pnl*100:.2f}%)")
-        elif pnl >= TAKE_PROFIT_PCT:
-            signal = "VENTA FUERTE"
-            reasons.append(f"💰 TAKE PROFIT ({pnl*100:.2f}%)")
-            
-    if signal == "NEUTRAL":
-        try:
-            if precio <= current['lower'] and current['rsi'] < 30:
-                if pf["coin"] == 0:
-                    signal = "COMPRA"
-                    reasons.append("Soporte + RSI Bajo")
-            elif (precio >= current['upper'] or current['rsi'] > 70):
-                if pf["coin"] > 0:
-                    signal = "VENTA"
-                    reasons.append("Techo + RSI Alto")
-        except: pass
+    if not df.empty:
+        # Renombrar columnas para compatibilidad
+        df = df.reset_index()
+        df = df.rename(columns={"Close": "c", "High": "h", "Low": "l"})
+        df = calcular_indicadores(df)
+        current = df.iloc[-1]
+        
+        # LÓGICA DE SEÑALES
+        pf = real_portfolio[symbol]
+        
+        # Gestión Riesgo (Usamos precio LIVE)
+        if pf["coin"] > 0 and pf["avg_price"] > 0:
+            pnl = (precio_live - pf["avg_price"]) / pf["avg_price"]
+            if pnl <= -STOP_LOSS_PCT:
+                signal = "VENTA FUERTE"
+                reasons.append(f"🛑 STOP LOSS ({pnl*100:.2f}%)")
+            elif pnl >= TAKE_PROFIT_PCT:
+                signal = "VENTA FUERTE"
+                reasons.append(f"💰 TAKE PROFIT ({pnl*100:.2f}%)")
+                
+        if signal == "NEUTRAL":
+            try:
+                # Usamos los indicadores del último cierre, pero comparamos con precio live
+                if precio_live <= current['lower'] and current['rsi'] < 30:
+                    if pf["coin"] == 0:
+                        signal = "COMPRA"
+                        reasons.append("Soporte + RSI Bajo")
+                elif (precio_live >= current['upper'] or current['rsi'] > 70):
+                    if pf["coin"] > 0:
+                        signal = "VENTA"
+                        reasons.append("Techo + RSI Alto")
+            except: pass
+    else:
+        reasons.append("Solo Precio (Sin historial)")
 
     res = {
-        "symbol": symbol, "precio": precio, "decision": signal, "detalles": reasons,
-        "portfolio": pf, "update_time": datetime.now().strftime("%H:%M:%S")
+        "symbol": symbol, 
+        "precio": precio_live, # <--- ESTE ES EL PRECIO RÁPIDO
+        "decision": signal, 
+        "detalles": reasons,
+        "portfolio": real_portfolio[symbol], 
+        "update_time": datetime.now().strftime("%H:%M:%S")
     }
     market_data_cache[symbol] = res
     return res
-
-import requests
-@app.post("/chat")
-async def chat_with_ai(request: Request):
-    global valid_model_name, GLOBAL_USDT
-    try:
-        body = await request.json()
-        msg = body.get("message", "")
-        symbol = body.get("symbol", "BTCUSDT")
-        api_key = GEMINI_API_KEY.strip()
-        datos = market_data_cache.get(symbol, {})
-        pf = real_portfolio.get(symbol, {})
-        contexto = f"""
-        Asesor Trading. {symbol}.
-        Precio: ${datos.get('precio', 0):,.2f}. Señal: {datos.get('decision', 'NEUTRAL')}.
-        Caja: ${GLOBAL_USDT:,.2f}. Tenencia: {pf.get('coin', 0):.4f}.
-        Usuario: "{msg}". Responde corto.
-        """
-        payload = { "contents": [{ "parts": [{"text": contexto}] }] }
-        headers = {"Content-Type": "application/json"}
-        if not valid_model_name: valid_model_name = "gemini-1.5-flash"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{valid_model_name}:generateContent?key={api_key}"
-        r = requests.post(url, headers=headers, json=payload, timeout=10)
-        if r.status_code == 200: return JSONResponse({"reply": r.json()['candidates'][0]['content']['parts'][0]['text']})
-        return JSONResponse({"reply": "Error IA."})
-    except: return JSONResponse({"reply": "Error interno."})
 
 @app.get("/", response_class=HTMLResponse)
 def read_root():
