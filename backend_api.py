@@ -15,13 +15,15 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
-# --- CONFIGURACIÓN ---
+# --- CONFIGURACIÓN SCALPING AGRESIVO ---
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
 GLOBAL_USDT = 0.0 
-STOP_LOSS_PCT = 0.015  # 1.5% (Un poco más holgado para que no salte por ruido)
-TAKE_PROFIT_PCT = 0.02 # 2% Ganancia asegurada
 
-# MEMORIA VOLÁTIL
+# AJUSTES DE ESTRATEGIA (MÁS RÁPIDA)
+STOP_LOSS_PCT = 0.01    # 1% (Cortar pérdidas rápido)
+TAKE_PROFIT_PCT = 0.008 # 0.8% (Asegurar ganancia rápido y liberar capital)
+
+# MEMORIA
 real_portfolio = {
     sym: {"usdt": 0.0, "coin": 0.0, "avg_price": 0.0} 
     for sym in SYMBOLS
@@ -34,7 +36,7 @@ async def set_balance(request: Request):
     global GLOBAL_USDT, real_portfolio, TRADE_LOG
     data = await request.json()
     GLOBAL_USDT = float(data.get("usdt", 0))
-    TRADE_LOG = [] # Reiniciamos historial al resetear caja
+    TRADE_LOG = [] 
     for sym in SYMBOLS:
         real_portfolio[sym]["usdt"] = GLOBAL_USDT
         real_portfolio[sym]["coin"] = 0.0
@@ -59,12 +61,9 @@ async def registrar_trade(request: Request):
     log_usdt = 0.0
     
     if action == "COMPRA":
-        # amount es USDT
         if GLOBAL_USDT < amount: return {"error": "Saldo USDT insuficiente"}
-        
         crypto_received = amount / price
         
-        # Precio Promedio Ponderado
         total_coins = pf["coin"] + crypto_received
         total_cost = (pf["coin"] * pf["avg_price"]) + amount
         pf["avg_price"] = total_cost / total_coins if total_coins > 0 else price
@@ -75,25 +74,19 @@ async def registrar_trade(request: Request):
         log_usdt = amount
         
     elif action == "VENTA":
-        # amount es CRIPTO
         if pf["coin"] < amount * 0.9999: return {"error": "No tienes suficientes monedas"}
-        
         usdt_received = amount * price
         
         pf["coin"] -= amount
         if pf["coin"] < 0: pf["coin"] = 0
         GLOBAL_USDT += usdt_received
-        
-        # Si vendemos todo, reiniciamos precio promedio
         if pf["coin"] <= 0.000001: pf["avg_price"] = 0.0 
         
         log_coin = amount
         log_usdt = usdt_received
         
-    # Sincronizar saldo Global
     for s in SYMBOLS: real_portfolio[s]["usdt"] = GLOBAL_USDT
     
-    # Guardar Log
     TRADE_LOG.append({
         "time": datetime.now().strftime("%H:%M:%S"),
         "symbol": symbol,
@@ -109,7 +102,7 @@ async def registrar_trade(request: Request):
 def get_history(symbol: str):
     return [t for t in TRADE_LOG if t["symbol"] == symbol]
 
-# --- LÓGICA DE DATOS ---
+# --- LÓGICA ---
 def obtener_historial_ajustado(symbol, precio_real_usuario):
     yahoo_symbol = symbol.replace("USDT", "-USD")
     ticker = yf.Ticker(yahoo_symbol)
@@ -118,7 +111,6 @@ def obtener_historial_ajustado(symbol, precio_real_usuario):
         if df.empty:
             df = ticker.history(period="1d", interval="5m", auto_adjust=True)
         
-        # AJUSTE MATEMÁTICO: Alineamos Yahoo al precio real de Binance
         if not df.empty and precio_real_usuario > 0:
             ultimo_cierre = df['Close'].iloc[-1]
             diff = precio_real_usuario - ultimo_cierre
@@ -150,18 +142,10 @@ async def get_analisis(symbol: str = "BTCUSDT", current_price: float = 0.0):
     global market_data_cache, real_portfolio
     if symbol not in SYMBOLS: symbol = "BTCUSDT"
     
-    # 1. VALIDACIÓN DE PRECIO OBLIGATORIA
-    # Si el frontend manda 0, intentamos usar caché, pero no confiamos en Yahoo ciegamente para PnL
-    price_source = "LIVE"
     if current_price <= 0:
         cached = market_data_cache.get(symbol)
-        if cached: 
-            current_price = cached["precio"]
-            price_source = "CACHE"
-        else:
-            price_source = "NONE"
+        if cached: current_price = cached["precio"]
 
-    # 2. Obtener Historial (Para RSI y Bandas)
     df = await run_in_threadpool(obtener_historial_ajustado, symbol, current_price)
     
     signal = "NEUTRAL"
@@ -172,11 +156,8 @@ async def get_analisis(symbol: str = "BTCUSDT", current_price: float = 0.0):
         current = df.iloc[-1]
         pf = real_portfolio[symbol]
         
-        # --- LÓGICA DE SEÑAL ---
-        
-        # A) ¿TENGO LA MONEDA? -> GESTIÓN DE POSICIÓN
+        # A) GESTIÓN DE POSICIÓN (Holding)
         if pf["coin"] > 0 and pf["avg_price"] > 0:
-            # Calculamos PnL con el precio ACTUAL REAL
             pnl_pct = (current_price - pf["avg_price"]) / pf["avg_price"]
             
             if pnl_pct <= -STOP_LOSS_PCT:
@@ -186,33 +167,31 @@ async def get_analisis(symbol: str = "BTCUSDT", current_price: float = 0.0):
                 signal = "VENTA FUERTE"
                 reasons.append(f"💰 TAKE PROFIT ({pnl_pct*100:.2f}%)")
             else:
-                # Si no toca stop ni profit, chequeamos técnica
-                if (current_price >= current['upper'] or current['rsi'] > 75):
+                # Venta técnica anticipada (Si el RSI sube mucho, vende aunque no toque el TP)
+                if (current_price >= current['upper'] or current['rsi'] > 65): # Umbral bajado a 65
                     signal = "VENTA"
-                    reasons.append("Técnico: Techo/Sobrecompra")
+                    reasons.append("Técnico: RSI Alto (>65)")
                 else:
-                    # ESTADO NUEVO: MANTENER (Tranquilidad)
                     signal = "MANTENER"
-                    reasons.append(f"PnL: {pnl_pct*100:.2f}% (En rango)")
+                    reasons.append(f"PnL: {pnl_pct*100:.2f}%")
 
-        # B) ¿NO TENGO LA MONEDA? -> BUSCO ENTRADA
+        # B) BUSQUEDA DE ENTRADA (Buying)
         elif pf["coin"] == 0:
-            if current_price <= current['lower'] and current['rsi'] < 30:
+            # UMBRAL RELAJADO: Entramos si RSI < 40 (Antes 30/35)
+            # Esto generará muchas más señales de compra
+            if current_price <= current['lower'] or current['rsi'] < 40:
                 signal = "COMPRA"
-                reasons.append("Soporte + RSI Bajo")
+                reasons.append("Zona de Compra (RSI < 40)")
             else:
                 signal = "NEUTRAL"
-                reasons.append("Esperando oportunidad")
+                reasons.append(f"RSI Actual: {current['rsi']:.1f}")
                 
     else:
         reasons.append("Esperando datos...")
 
     res = {
-        "symbol": symbol, 
-        "precio": current_price, 
-        "decision": signal, 
-        "detalles": reasons,
-        "portfolio": real_portfolio,
+        "symbol": symbol, "precio": current_price, "decision": signal, 
+        "detalles": reasons, "portfolio": real_portfolio,
         "update_time": datetime.now().strftime("%H:%M:%S")
     }
     market_data_cache[symbol] = res
