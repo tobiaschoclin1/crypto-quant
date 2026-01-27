@@ -2,15 +2,15 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trading Workstation Final</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Trading Workstation V9 (Mobile)</title>
     <style>
         :root { --bg: #0f172a; --card: #1e293b; --text: #e2e8f0; --accent: #3b82f6; --green: #22c55e; --red: #ef4444; --blue: #3b82f6; --sidebar-w: 250px; }
-        * { box-sizing: border-box; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { background-color: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; }
 
-        /* SIDEBAR */
-        .sidebar { width: var(--sidebar-w); background: #020617; border-right: 1px solid #334155; padding: 20px; display: flex; flex-direction: column; gap: 10px; }
+        /* --- ESTILOS DE ESCRITORIO (Base) --- */
+        .sidebar { width: var(--sidebar-w); background: #020617; border-right: 1px solid #334155; padding: 20px; display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; z-index: 10; }
         .sidebar-title { font-size: 14px; color: #94a3b8; font-weight: bold; margin-bottom: 10px; letter-spacing: 1px; }
         
         .wallet-item { background: var(--card); padding: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #334155; cursor: pointer; transition: background 0.2s; }
@@ -20,8 +20,7 @@
         .usdt-box { border-color: var(--green); background: rgba(34, 197, 94, 0.05); cursor: default; }
         .balance-input { background: transparent; border: none; color: white; font-family: monospace; width: 90px; text-align: right; border-bottom: 1px solid #475569; outline: none; font-size: 16px; font-weight: bold; }
 
-        /* MAIN CONTENT */
-        .main-content { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; }
+        .main-content { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; position: relative; }
 
         .radar-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; }
         .radar-card { background: var(--card); padding: 10px; border-radius: 8px; border: 1px solid #334155; cursor: pointer; text-align: center; }
@@ -31,10 +30,9 @@
         .r-signal { font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 4px; display: inline-block; }
         .sig-buy { background: rgba(34, 197, 94, 0.2); color: var(--green); border: 1px solid var(--green); }
         .sig-sell { background: rgba(239, 68, 68, 0.2); color: var(--red); border: 1px solid var(--red); }
-        .sig-hold { background: rgba(59, 130, 246, 0.2); color: var(--blue); border: 1px solid var(--blue); } /* AZUL PARA MANTENER */
+        .sig-hold { background: rgba(59, 130, 246, 0.2); color: var(--blue); border: 1px solid var(--blue); }
         .sig-neutral { background: rgba(148, 163, 184, 0.2); color: #94a3b8; }
 
-        /* TRADE PANEL */
         .trade-panel { background: var(--card); border-radius: 16px; padding: 30px; border: 1px solid #334155; text-align: center; max-width: 800px; margin: 0 auto; width: 100%; }
         .big-symbol { font-size: 24px; color: #94a3b8; font-weight: 300; }
         .big-price { font-size: 64px; font-weight: 800; margin: 10px 0; letter-spacing: -2px; line-height: 1; transition: color 0.2s; }
@@ -59,14 +57,52 @@
         /* MODAL */
         .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: none; justify-content: center; align-items: center; z-index: 100; }
         .modal-content { background: var(--card); padding: 30px; border-radius: 16px; width: 500px; max-height: 80vh; display: flex; flex-direction: column; border: 1px solid #334155; }
-        
         .hist-table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px; }
         .hist-table th { text-align: left; border-bottom: 1px solid #475569; padding: 8px; color: #94a3b8; }
         .hist-table td { border-bottom: 1px solid #334155; padding: 8px; color: #e2e8f0; }
         .row-buy { color: var(--green) !important; }
         .row-sell { color: var(--red) !important; }
-        
         .close-btn { align-self: flex-end; cursor: pointer; font-size: 24px; color: #94a3b8; }
+
+        /* --- ADAPTACIÓN A MÓVIL (Responsivo) --- */
+        @media (max-width: 768px) {
+            body { flex-direction: column; overflow-y: auto; height: auto; }
+            
+            /* Sidebar se convierte en Header superior */
+            .sidebar { 
+                width: 100%; 
+                border-right: none; 
+                border-bottom: 1px solid #334155; 
+                flex-direction: row; 
+                flex-wrap: wrap; 
+                gap: 5px;
+                padding: 10px;
+                align-items: center;
+                justify-content: space-between;
+            }
+            .sidebar-title { display: none; } /* Ocultamos título para ahorrar espacio */
+            
+            /* Los items de la billetera se hacen más compactos */
+            .wallet-item { flex: 1; min-width: 80px; padding: 5px 8px; font-size: 11px; flex-direction: column; align-items: flex-start; }
+            .wallet-sym { font-size: 10px; margin-bottom: 2px; }
+            .wallet-val { font-size: 12px; }
+            .balance-input { width: 60px; font-size: 14px; }
+
+            .main-content { padding: 10px; overflow: visible; }
+            
+            /* Ajustes del Panel de Trading */
+            .trade-panel { padding: 15px; }
+            .big-price { font-size: 42px; margin: 5px 0; }
+            .big-symbol { font-size: 18px; }
+            
+            /* Botones de Compra/Venta APILADOS para evitar dedos gordos */
+            .ops-grid { grid-template-columns: 1fr; gap: 15px; }
+            .btn-buy, .btn-sell { padding: 12px; }
+            
+            /* Modal Historial */
+            .modal-content { width: 90%; padding: 15px; }
+            .hist-table { font-size: 12px; }
+        }
     </style>
 </head>
 <body>
@@ -74,11 +110,11 @@
     <div id="historyModal" class="modal">
         <div class="modal-content">
             <span class="close-btn" onclick="document.getElementById('historyModal').style.display='none'">&times;</span>
-            <h2 id="histTitle" style="margin:0 0 10px 0">Historial</h2>
+            <h2 id="histTitle" style="margin:0 0 10px 0; font-size:18px;">Historial</h2>
             <div style="overflow-y:auto;">
                 <table class="hist-table">
                     <thead>
-                        <tr><th>Hora</th><th>Tipo</th><th>Precio</th><th>Cant.</th><th>Total ($)</th></tr>
+                        <tr><th>Hora</th><th>Tipo</th><th>Precio</th><th>Cant.</th></tr>
                     </thead>
                     <tbody id="histBody"></tbody>
                 </table>
@@ -87,14 +123,19 @@
     </div>
 
     <div class="sidebar">
-        <div class="sidebar-title">MI BILLETERA</div>
-        <div class="wallet-item usdt-box">
-            <span class="wallet-sym">USDT</span>
-            <div>$<input type="number" id="usdtInput" class="balance-input" value="0.00" onchange="updateUSDTManual()"></div>
+        <div class="wallet-item usdt-box" style="flex: 2; min-width: 140px; flex-direction: row; align-items: center;">
+            <span class="wallet-sym" style="font-size:14px; margin-right:10px;">USDT</span>
+            <div style="display:flex; align-items:center;">
+                <span style="color:var(--green); margin-right:2px;">$</span>
+                <input type="number" id="usdtInput" class="balance-input" value="0.00" onchange="updateUSDTManual()">
+            </div>
         </div>
-        <div id="walletList"></div>
-        <div style="margin-top: auto;">
-             <button onclick="if(confirm('¿Vender todo?')) alert('Ejecuta ventas manuales.')" style="width:100%; background:#ef444420; border:1px solid #ef4444; color:#ef4444; padding:10px; border-radius:6px; cursor:pointer;">CERRAR TODO</button>
+
+        <div id="walletList" style="display:contents;">
+            </div>
+
+        <div style="flex: 0 0 auto;">
+             <button onclick="if(confirm('¿Vender todo?')) alert('Ejecuta ventas manuales.')" style="background:#ef444420; border:1px solid #ef4444; color:#ef4444; padding:5px 10px; border-radius:6px; cursor:pointer; font-size:12px;">X</button>
         </div>
     </div>
 
@@ -105,8 +146,8 @@
             <div id="bigSymbol" class="big-symbol">BTC / USDT</div>
             <div id="bigPrice" class="big-price">---</div>
             
-            <div id="mainSignal" class="signal-banner" style="background:#334155; color:#94a3b8">ESPERANDO SEÑAL</div>
-            <div id="reasons" style="font-size:13px; color:#94a3b8;">Conectando...</div>
+            <div id="mainSignal" class="signal-banner" style="background:#334155; color:#94a3b8">CONECTANDO</div>
+            <div id="reasons" style="font-size:12px; color:#94a3b8;">Binance Stream...</div>
 
             <div class="price-input-row">
                 <label>PRECIO REAL:</label>
@@ -115,7 +156,7 @@
 
             <div class="ops-grid">
                 <div class="op-col">
-                    <div class="op-title" style="color:var(--green)">COMPRA (Gastas USDT)</div>
+                    <div class="op-title" style="color:var(--green)">COMPRAR (USDT)</div>
                     <div class="input-wrapper">
                         <input type="number" id="buyAmount" placeholder="Ej: 100">
                         <span class="input-suffix">USDT</span>
@@ -123,7 +164,7 @@
                     <button class="btn-buy" onclick="executeTrade('COMPRA')">COMPRAR</button>
                 </div>
                 <div class="op-col">
-                    <div class="op-title" style="color:var(--red)">VENTA (Vendes Moneda)</div>
+                    <div class="op-title" style="color:var(--red)">VENDER (COIN)</div>
                     <div class="input-wrapper">
                         <input type="number" id="sellAmount" placeholder="Ej: 0.05">
                         <span class="input-suffix" id="sellSuffix">COIN</span>
@@ -177,7 +218,7 @@
                 div.onclick = () => showHistory(sym);
                 div.innerHTML = `
                     <span class="wallet-sym">${sym.replace('USDT','')}</span>
-                    <span class="wallet-val" id="bal-${sym}">0.0000</span>
+                    <span class="wallet-val" id="bal-${sym}">0.00</span>
                 `;
                 list.appendChild(div);
             });
@@ -186,26 +227,26 @@
         async function showHistory(sym) {
             const modal = document.getElementById('historyModal');
             const tbody = document.getElementById('histBody');
-            document.getElementById('histTitle').innerText = "Historial: " + sym.replace('USDT','');
-            tbody.innerHTML = '<tr><td colspan="5">Cargando...</td></tr>';
+            document.getElementById('histTitle').innerText = sym.replace('USDT','');
+            tbody.innerHTML = '<tr><td colspan="4">Cargando...</td></tr>';
             modal.style.display = 'flex';
             try {
                 const res = await fetch(`/history/${sym}`);
                 const data = await res.json();
                 tbody.innerHTML = '';
-                if(data.length === 0) { tbody.innerHTML = '<tr><td colspan="5">Sin movimientos hoy</td></tr>'; return; }
+                if(data.length === 0) { tbody.innerHTML = '<tr><td colspan="4">Sin datos</td></tr>'; return; }
                 data.reverse().forEach(row => {
                     const isBuy = row.action === 'COMPRA';
+                    // Simplificado para móvil
                     tbody.innerHTML += `
                         <tr>
-                            <td>${row.time}</td>
-                            <td class="${isBuy ? 'row-buy' : 'row-sell'}">${row.action}</td>
-                            <td>$${row.price.toLocaleString()}</td>
-                            <td>${row.coin.toFixed(6)}</td>
-                            <td>$${row.usdt.toFixed(2)}</td>
+                            <td>${row.time.substring(0,5)}</td>
+                            <td class="${isBuy ? 'row-buy' : 'row-sell'}">${row.action.substring(0,1)}</td>
+                            <td>${row.price.toLocaleString()}</td>
+                            <td>${row.coin.toFixed(4)}</td>
                         </tr>`;
                 });
-            } catch(e) { tbody.innerHTML = '<tr><td colspan="5">Error</td></tr>'; }
+            } catch(e) { tbody.innerHTML = '<tr><td colspan="4">Error</td></tr>'; }
         }
 
         function connectBinanceWS() {
