@@ -15,13 +15,15 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
-# --- CONFIGURACIÓN SCALPING AGRESIVO ---
+# --- CONFIGURACIÓN SWING INTRADÍA (TU PERFIL) ---
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
 GLOBAL_USDT = 0.0 
 
-# AJUSTES DE ESTRATEGIA (MÁS RÁPIDA)
-STOP_LOSS_PCT = 0.01    # 1% (Cortar pérdidas rápido)
-TAKE_PROFIT_PCT = 0.008 # 0.8% (Asegurar ganancia rápido y liberar capital)
+# ESTRATEGIA EQUILIBRADA
+# Buscamos ganar 1.8% por trade.
+# Arriesgamos 1.2% (Ratio 1.5:1)
+STOP_LOSS_PCT = 0.012     
+TAKE_PROFIT_PCT = 0.018  
 
 # MEMORIA
 real_portfolio = {
@@ -69,7 +71,6 @@ async def registrar_trade(request: Request):
         pf["avg_price"] = total_cost / total_coins if total_coins > 0 else price
         pf["coin"] += crypto_received
         GLOBAL_USDT -= amount
-        
         log_coin = crypto_received
         log_usdt = amount
         
@@ -81,7 +82,6 @@ async def registrar_trade(request: Request):
         if pf["coin"] < 0: pf["coin"] = 0
         GLOBAL_USDT += usdt_received
         if pf["coin"] <= 0.000001: pf["avg_price"] = 0.0 
-        
         log_coin = amount
         log_usdt = usdt_received
         
@@ -156,7 +156,7 @@ async def get_analisis(symbol: str = "BTCUSDT", current_price: float = 0.0):
         current = df.iloc[-1]
         pf = real_portfolio[symbol]
         
-        # A) GESTIÓN DE POSICIÓN (Holding)
+        # A) TENGO LA MONEDA (Venta)
         if pf["coin"] > 0 and pf["avg_price"] > 0:
             pnl_pct = (current_price - pf["avg_price"]) / pf["avg_price"]
             
@@ -167,24 +167,30 @@ async def get_analisis(symbol: str = "BTCUSDT", current_price: float = 0.0):
                 signal = "VENTA FUERTE"
                 reasons.append(f"💰 TAKE PROFIT ({pnl_pct*100:.2f}%)")
             else:
-                # Venta técnica anticipada (Si el RSI sube mucho, vende aunque no toque el TP)
-                if (current_price >= current['upper'] or current['rsi'] > 65): # Umbral bajado a 65
+                # RSI > 70 es venta técnica clásica
+                if current['rsi'] > 70: 
                     signal = "VENTA"
-                    reasons.append("Técnico: RSI Alto (>65)")
+                    reasons.append("RSI Alto (>70)")
                 else:
                     signal = "MANTENER"
                     reasons.append(f"PnL: {pnl_pct*100:.2f}%")
 
-        # B) BUSQUEDA DE ENTRADA (Buying)
+        # B) NO TENGO LA MONEDA (Compra)
         elif pf["coin"] == 0:
-            # UMBRAL RELAJADO: Entramos si RSI < 40 (Antes 30/35)
-            # Esto generará muchas más señales de compra
-            if current_price <= current['lower'] or current['rsi'] < 40:
+            # ESTRATEGIA HÍBRIDA:
+            # 1. Rebote Técnico: Precio toca banda inferior Y el RSI no está caliente (<45)
+            if current_price <= current['lower'] and current['rsi'] < 45:
                 signal = "COMPRA"
-                reasons.append("Zona de Compra (RSI < 40)")
+                reasons.append("Rebote en Banda Inferior")
+            
+            # 2. Sobreventa Pura: RSI cae debajo de 30 (Oportunidad de oro)
+            elif current['rsi'] < 30:
+                signal = "COMPRA"
+                reasons.append("Sobreventa (RSI < 30)")
+                
             else:
                 signal = "NEUTRAL"
-                reasons.append(f"RSI Actual: {current['rsi']:.1f}")
+                reasons.append(f"RSI: {current['rsi']:.1f}")
                 
     else:
         reasons.append("Esperando datos...")
