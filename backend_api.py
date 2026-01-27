@@ -8,6 +8,7 @@ import os
 from datetime import datetime
 import pytz 
 import yfinance as yf 
+import numpy as np 
 
 app = FastAPI()
 
@@ -15,17 +16,14 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
-# --- CONFIGURACIÓN SWING INTRADÍA (TU PERFIL) ---
+# --- CONFIGURACIÓN SWING INTRADÍA (5 MINUTOS) ---
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
 GLOBAL_USDT = 0.0 
 
-# ESTRATEGIA EQUILIBRADA
-# Buscamos ganar 1.8% por trade.
-# Arriesgamos 1.2% (Ratio 1.5:1)
-STOP_LOSS_PCT = 0.012     
-TAKE_PROFIT_PCT = 0.018  
+# ESTRATEGIA (Target 2.5% / Stop 1.5%)
+STOP_LOSS_PCT = 0.015     
+TAKE_PROFIT_PCT = 0.025   
 
-# MEMORIA
 real_portfolio = {
     sym: {"usdt": 0.0, "coin": 0.0, "avg_price": 0.0} 
     for sym in SYMBOLS
@@ -65,7 +63,6 @@ async def registrar_trade(request: Request):
     if action == "COMPRA":
         if GLOBAL_USDT < amount: return {"error": "Saldo USDT insuficiente"}
         crypto_received = amount / price
-        
         total_coins = pf["coin"] + crypto_received
         total_cost = (pf["coin"] * pf["avg_price"]) + amount
         pf["avg_price"] = total_cost / total_coins if total_coins > 0 else price
@@ -77,7 +74,6 @@ async def registrar_trade(request: Request):
     elif action == "VENTA":
         if pf["coin"] < amount * 0.9999: return {"error": "No tienes suficientes monedas"}
         usdt_received = amount * price
-        
         pf["coin"] -= amount
         if pf["coin"] < 0: pf["coin"] = 0
         GLOBAL_USDT += usdt_received
@@ -89,11 +85,8 @@ async def registrar_trade(request: Request):
     
     TRADE_LOG.append({
         "time": datetime.now().strftime("%H:%M:%S"),
-        "symbol": symbol,
-        "action": action,
-        "price": price,
-        "coin": log_coin,
-        "usdt": log_usdt
+        "symbol": symbol, "action": action, "price": price,
+        "coin": log_coin, "usdt": log_usdt
     })
     
     return {"status": "OK", "nuevo_saldo": GLOBAL_USDT, "portfolio": real_portfolio}
@@ -102,14 +95,15 @@ async def registrar_trade(request: Request):
 def get_history(symbol: str):
     return [t for t in TRADE_LOG if t["symbol"] == symbol]
 
-# --- LÓGICA ---
+# --- LÓGICA DE ANÁLISIS ---
 def obtener_historial_ajustado(symbol, precio_real_usuario):
     yahoo_symbol = symbol.replace("USDT", "-USD")
     ticker = yf.Ticker(yahoo_symbol)
     try:
-        df = ticker.history(period="1d", interval="1m", auto_adjust=True)
+        # Velas de 5m para filtrar ruido
+        df = ticker.history(period="1d", interval="5m", auto_adjust=True)
         if df.empty:
-            df = ticker.history(period="1d", interval="5m", auto_adjust=True)
+            df = ticker.history(period="1d", interval="15m", auto_adjust=True)
         
         if not df.empty and precio_real_usuario > 0:
             ultimo_cierre = df['Close'].iloc[-1]
@@ -125,16 +119,18 @@ def obtener_historial_ajustado(symbol, precio_real_usuario):
     return pd.DataFrame()
 
 def calcular_indicadores(df):
-    if len(df) < 5: return df 
+    if len(df) < 20: return df 
     df['sma20'] = df['c'].rolling(window=20).mean()
     df['std20'] = df['c'].rolling(window=20).std()
     df['upper'] = df['sma20'] + (df['std20'] * 2)
     df['lower'] = df['sma20'] - (df['std20'] * 2)
+    
     delta = df['c'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=7).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=7).mean()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     df['rsi'] = 100 - (100 / (1 + rs))
+    df = df.fillna(0)
     return df
 
 @app.get("/analisis")
@@ -151,49 +147,50 @@ async def get_analisis(symbol: str = "BTCUSDT", current_price: float = 0.0):
     signal = "NEUTRAL"
     reasons = []
     
-    if not df.empty and current_price > 0:
+    if not df.empty and len(df) > 20 and current_price > 0:
         df = calcular_indicadores(df)
         current = df.iloc[-1]
         pf = real_portfolio[symbol]
         
-        # A) TENGO LA MONEDA (Venta)
-        if pf["coin"] > 0 and pf["avg_price"] > 0:
-            pnl_pct = (current_price - pf["avg_price"]) / pf["avg_price"]
-            
-            if pnl_pct <= -STOP_LOSS_PCT:
-                signal = "VENTA FUERTE"
-                reasons.append(f"🛑 STOP LOSS ({pnl_pct*100:.2f}%)")
-            elif pnl_pct >= TAKE_PROFIT_PCT:
-                signal = "VENTA FUERTE"
-                reasons.append(f"💰 TAKE PROFIT ({pnl_pct*100:.2f}%)")
-            else:
-                # RSI > 70 es venta técnica clásica
-                if current['rsi'] > 70: 
-                    signal = "VENTA"
-                    reasons.append("RSI Alto (>70)")
+        rsi_val = current['rsi']
+        
+        if rsi_val <= 1 or np.isnan(rsi_val):
+            signal = "NEUTRAL"
+            reasons.append("Calculando indicadores...")
+        else:
+            # A) GESTIÓN DE POSICIÓN
+            if pf["coin"] > 0 and pf["avg_price"] > 0:
+                pnl_pct = (current_price - pf["avg_price"]) / pf["avg_price"]
+                
+                if pnl_pct <= -STOP_LOSS_PCT:
+                    signal = "VENTA FUERTE"
+                    reasons.append(f"🛑 STOP LOSS ({pnl_pct*100:.2f}%)")
+                elif pnl_pct >= TAKE_PROFIT_PCT:
+                    signal = "VENTA FUERTE"
+                    reasons.append(f"💰 TAKE PROFIT ({pnl_pct*100:.2f}%)")
                 else:
-                    signal = "MANTENER"
-                    reasons.append(f"PnL: {pnl_pct*100:.2f}%")
+                    if rsi_val > 75: 
+                        signal = "VENTA"
+                        reasons.append(f"RSI Extremo ({rsi_val:.0f})")
+                    else:
+                        signal = "MANTENER"
+                        reasons.append(f"PnL: {pnl_pct*100:.2f}%")
 
-        # B) NO TENGO LA MONEDA (Compra)
-        elif pf["coin"] == 0:
-            # ESTRATEGIA HÍBRIDA:
-            # 1. Rebote Técnico: Precio toca banda inferior Y el RSI no está caliente (<45)
-            if current_price <= current['lower'] and current['rsi'] < 45:
-                signal = "COMPRA"
-                reasons.append("Rebote en Banda Inferior")
-            
-            # 2. Sobreventa Pura: RSI cae debajo de 30 (Oportunidad de oro)
-            elif current['rsi'] < 30:
-                signal = "COMPRA"
-                reasons.append("Sobreventa (RSI < 30)")
-                
-            else:
-                signal = "NEUTRAL"
-                reasons.append(f"RSI: {current['rsi']:.1f}")
-                
+            # B) BÚSQUEDA DE ENTRADA
+            elif pf["coin"] == 0:
+                # Estrategia Swing: Banda Inferior + RSI < 40
+                if current_price <= current['lower'] and rsi_val < 40:
+                    signal = "COMPRA"
+                    reasons.append("Suelo Técnico (Bandas+RSI)")
+                # Estrategia Sobreventa: RSI < 30
+                elif rsi_val < 30:
+                    signal = "COMPRA"
+                    reasons.append(f"Sobreventa (RSI {rsi_val:.0f})")
+                else:
+                    signal = "NEUTRAL"
+                    reasons.append(f"RSI: {rsi_val:.1f}")
     else:
-        reasons.append("Esperando datos...")
+        reasons.append("Sincronizando...")
 
     res = {
         "symbol": symbol, "precio": current_price, "decision": signal, 
