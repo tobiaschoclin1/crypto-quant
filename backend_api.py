@@ -16,13 +16,15 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
-# --- CONFIGURACIÓN SWING INTRADÍA (5 MINUTOS) ---
+# --- CONFIGURACIÓN MOMENTUM (4-6 HORAS) ---
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
 GLOBAL_USDT = 0.0 
 
-# ESTRATEGIA (Target 2.5% / Stop 1.5%)
-STOP_LOSS_PCT = 0.015     
-TAKE_PROFIT_PCT = 0.025   
+# BUSCAMOS MOVIMIENTOS RÁPIDOS Y PROBABLES
+# Ganancia objetivo: 1.3% (Realista en 2-3 velas de 15m)
+# Stop Loss: 0.8% (Muy corto, si falla salimos ya)
+STOP_LOSS_PCT = 0.008     
+TAKE_PROFIT_PCT = 0.013   
 
 real_portfolio = {
     sym: {"usdt": 0.0, "coin": 0.0, "avg_price": 0.0} 
@@ -33,14 +35,11 @@ market_data_cache = {}
 
 @app.post("/set_balance")
 async def set_balance(request: Request):
-    global GLOBAL_USDT, real_portfolio, TRADE_LOG
+    global GLOBAL_USDT, real_portfolio
     data = await request.json()
     GLOBAL_USDT = float(data.get("usdt", 0))
-    TRADE_LOG = [] 
     for sym in SYMBOLS:
         real_portfolio[sym]["usdt"] = GLOBAL_USDT
-        real_portfolio[sym]["coin"] = 0.0
-        real_portfolio[sym]["avg_price"] = 0.0
     return {"status": "Saldo Actualizado", "usdt": GLOBAL_USDT}
 
 @app.post("/registrar_trade")
@@ -95,12 +94,12 @@ async def registrar_trade(request: Request):
 def get_history(symbol: str):
     return [t for t in TRADE_LOG if t["symbol"] == symbol]
 
-# --- LÓGICA DE ANÁLISIS ---
+# --- LÓGICA DE DATOS ---
 def obtener_historial_ajustado(symbol, precio_real_usuario):
     yahoo_symbol = symbol.replace("USDT", "-USD")
     ticker = yf.Ticker(yahoo_symbol)
     try:
-        # Velas de 5m para filtrar ruido
+        # Volvemos a 5m para tener agilidad, pero filtraremos mejor
         df = ticker.history(period="1d", interval="5m", auto_adjust=True)
         if df.empty:
             df = ticker.history(period="1d", interval="15m", auto_adjust=True)
@@ -119,17 +118,26 @@ def obtener_historial_ajustado(symbol, precio_real_usuario):
     return pd.DataFrame()
 
 def calcular_indicadores(df):
-    if len(df) < 20: return df 
-    df['sma20'] = df['c'].rolling(window=20).mean()
-    df['std20'] = df['c'].rolling(window=20).std()
-    df['upper'] = df['sma20'] + (df['std20'] * 2)
-    df['lower'] = df['sma20'] - (df['std20'] * 2)
+    if len(df) < 26: return df 
     
+    # EMA 20 (Tendencia Corta - Gatillo rápido)
+    df['ema20'] = df['c'].ewm(span=20, adjust=False).mean()
+    # EMA 50 (Tendencia Media - Filtro de seguridad)
+    df['ema50'] = df['c'].ewm(span=50, adjust=False).mean()
+    
+    # MACD Clásico
+    ema12 = df['c'].ewm(span=12, adjust=False).mean()
+    ema26 = df['c'].ewm(span=26, adjust=False).mean()
+    df['macd'] = ema12 - ema26
+    df['signal'] = df['macd'].ewm(span=9, adjust=False).mean()
+    
+    # RSI
     delta = df['c'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     df['rsi'] = 100 - (100 / (1 + rs))
+    
     df = df.fillna(0)
     return df
 
@@ -147,48 +155,71 @@ async def get_analisis(symbol: str = "BTCUSDT", current_price: float = 0.0):
     signal = "NEUTRAL"
     reasons = []
     
-    if not df.empty and len(df) > 20 and current_price > 0:
+    if not df.empty and len(df) > 26 and current_price > 0:
         df = calcular_indicadores(df)
         current = df.iloc[-1]
         pf = real_portfolio[symbol]
         
-        rsi_val = current['rsi']
+        rsi = current['rsi']
+        ema20 = current['ema20']
+        ema50 = current['ema50']
+        macd = current['macd']
+        sig_line = current['signal']
         
-        if rsi_val <= 1 or np.isnan(rsi_val):
+        if rsi <= 1 or np.isnan(rsi):
             signal = "NEUTRAL"
-            reasons.append("Calculando indicadores...")
+            reasons.append("Calculando...")
         else:
-            # A) GESTIÓN DE POSICIÓN
+            # A) GESTIÓN DE VENTA
             if pf["coin"] > 0 and pf["avg_price"] > 0:
                 pnl_pct = (current_price - pf["avg_price"]) / pf["avg_price"]
                 
+                # Stop Loss Corto (Cortar pérdidas rápido)
                 if pnl_pct <= -STOP_LOSS_PCT:
                     signal = "VENTA FUERTE"
                     reasons.append(f"🛑 STOP LOSS ({pnl_pct*100:.2f}%)")
+                
+                # Take Profit Realista
                 elif pnl_pct >= TAKE_PROFIT_PCT:
                     signal = "VENTA FUERTE"
                     reasons.append(f"💰 TAKE PROFIT ({pnl_pct*100:.2f}%)")
+                
                 else:
-                    if rsi_val > 75: 
+                    # SALIDA INTELIGENTE (Trailing Stop Manual)
+                    # Si ya ganamos algo (>0.5%) y el precio cae debajo de la EMA20, huimos.
+                    if current_price < ema20 and pnl_pct > 0.005:
                         signal = "VENTA"
-                        reasons.append(f"RSI Extremo ({rsi_val:.0f})")
+                        reasons.append("Perdida de tendencia (EMA20)")
+                    elif rsi > 70: # Sobrecompra, mejor asegurar
+                        signal = "VENTA"
+                        reasons.append("RSI Alto (>70)")
                     else:
                         signal = "MANTENER"
                         reasons.append(f"PnL: {pnl_pct*100:.2f}%")
 
-            # B) BÚSQUEDA DE ENTRADA
+            # B) GESTIÓN DE COMPRA (MOMENTUM)
             elif pf["coin"] == 0:
-                # Estrategia Swing: Banda Inferior + RSI < 40
-                if current_price <= current['lower'] and rsi_val < 40:
+                # REGLAS DE ORO PARA ENTRAR (Filtrar basura):
+                # 1. TENDENCIA: Precio > EMA50 (Solo operamos a favor de la corriente)
+                # 2. IMPULSO: Precio > EMA20 (Está subiendo ahora mismo)
+                # 3. FUERZA: RSI > 50 (Hay compradores) PERO RSI < 70 (No llegamos tarde)
+                # 4. MACD: Histograma positivo (MACD > Signal)
+                
+                trend_ok = current_price > ema50
+                momentum_ok = current_price > ema20
+                rsi_ok = 50 < rsi < 70
+                macd_ok = macd > sig_line
+                
+                if trend_ok and momentum_ok and rsi_ok and macd_ok:
                     signal = "COMPRA"
-                    reasons.append("Suelo Técnico (Bandas+RSI)")
-                # Estrategia Sobreventa: RSI < 30
-                elif rsi_val < 30:
-                    signal = "COMPRA"
-                    reasons.append(f"Sobreventa (RSI {rsi_val:.0f})")
+                    reasons.append("🚀 IMPULSO CONFIRMADO")
+                
                 else:
                     signal = "NEUTRAL"
-                    reasons.append(f"RSI: {rsi_val:.1f}")
+                    if not trend_ok: reasons.append("Esperando Tendencia (Bajo EMA50)")
+                    elif not rsi_ok: reasons.append(f"RSI fuera de rango ({rsi:.0f})")
+                    elif not momentum_ok: reasons.append("Precio débil (Bajo EMA20)")
+                    else: reasons.append("Esperando cruce MACD")
     else:
         reasons.append("Sincronizando...")
 
