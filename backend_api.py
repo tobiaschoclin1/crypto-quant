@@ -16,15 +16,15 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
-# --- CONFIGURACIÓN MOMENTUM (4-6 HORAS) ---
+# --- CONFIGURACIÓN SWING RELAX (HOLDING PERMITIDO) ---
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
 GLOBAL_USDT = 0.0 
 
-# BUSCAMOS MOVIMIENTOS RÁPIDOS Y PROBABLES
-# Ganancia objetivo: 1.3% (Realista en 2-3 velas de 15m)
-# Stop Loss: 0.8% (Muy corto, si falla salimos ya)
-STOP_LOSS_PCT = 0.008     
-TAKE_PROFIT_PCT = 0.013   
+# ESTRATEGIA VALIENTE (Swing Diario)
+# Damos mucho aire. Si baja, aguantamos hasta el 3%.
+# Buscamos ganancias grandes del 4% o más.
+STOP_LOSS_PCT = 0.030     # 3.0% (Aguantar correcciones)
+TAKE_PROFIT_PCT = 0.040   # 4.0% (Buscar recorrido largo)
 
 real_portfolio = {
     sym: {"usdt": 0.0, "coin": 0.0, "avg_price": 0.0} 
@@ -99,10 +99,10 @@ def obtener_historial_ajustado(symbol, precio_real_usuario):
     yahoo_symbol = symbol.replace("USDT", "-USD")
     ticker = yf.Ticker(yahoo_symbol)
     try:
-        # Volvemos a 5m para tener agilidad, pero filtraremos mejor
-        df = ticker.history(period="1d", interval="5m", auto_adjust=True)
+        # Usamos velas de 15m para consistencia y tendencia
+        df = ticker.history(period="1d", interval="15m", auto_adjust=True)
         if df.empty:
-            df = ticker.history(period="1d", interval="15m", auto_adjust=True)
+            df = ticker.history(period="5d", interval="15m", auto_adjust=True)
         
         if not df.empty and precio_real_usuario > 0:
             ultimo_cierre = df['Close'].iloc[-1]
@@ -118,20 +118,18 @@ def obtener_historial_ajustado(symbol, precio_real_usuario):
     return pd.DataFrame()
 
 def calcular_indicadores(df):
-    if len(df) < 26: return df 
+    if len(df) < 50: return df 
     
-    # EMA 20 (Tendencia Corta - Gatillo rápido)
-    df['ema20'] = df['c'].ewm(span=20, adjust=False).mean()
-    # EMA 50 (Tendencia Media - Filtro de seguridad)
+    # EMA 50 (Tendencia Principal)
     df['ema50'] = df['c'].ewm(span=50, adjust=False).mean()
     
-    # MACD Clásico
+    # MACD (Gatillo de entrada)
     ema12 = df['c'].ewm(span=12, adjust=False).mean()
     ema26 = df['c'].ewm(span=26, adjust=False).mean()
     df['macd'] = ema12 - ema26
     df['signal'] = df['macd'].ewm(span=9, adjust=False).mean()
     
-    # RSI
+    # RSI (Filtro de entrada)
     delta = df['c'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -143,7 +141,7 @@ def calcular_indicadores(df):
 
 @app.get("/analisis")
 async def get_analisis(symbol: str = "BTCUSDT", current_price: float = 0.0):
-    global market_data_cache, real_portfolio
+    global market_data_cache, real_portfolio, GLOBAL_USDT
     if symbol not in SYMBOLS: symbol = "BTCUSDT"
     
     if current_price <= 0:
@@ -155,71 +153,68 @@ async def get_analisis(symbol: str = "BTCUSDT", current_price: float = 0.0):
     signal = "NEUTRAL"
     reasons = []
     
-    if not df.empty and len(df) > 26 and current_price > 0:
+    if not df.empty and len(df) > 50 and current_price > 0:
         df = calcular_indicadores(df)
         current = df.iloc[-1]
         pf = real_portfolio[symbol]
         
-        rsi = current['rsi']
-        ema20 = current['ema20']
         ema50 = current['ema50']
         macd = current['macd']
         sig_line = current['signal']
+        rsi = current['rsi']
         
         if rsi <= 1 or np.isnan(rsi):
             signal = "NEUTRAL"
             reasons.append("Calculando...")
         else:
-            # A) GESTIÓN DE VENTA
+            # A) GESTIÓN DE POSICIÓN (Ventas)
             if pf["coin"] > 0 and pf["avg_price"] > 0:
                 pnl_pct = (current_price - pf["avg_price"]) / pf["avg_price"]
                 
-                # Stop Loss Corto (Cortar pérdidas rápido)
+                # 1. Stop Loss REAL (Emergencia)
                 if pnl_pct <= -STOP_LOSS_PCT:
                     signal = "VENTA FUERTE"
                     reasons.append(f"🛑 STOP LOSS ({pnl_pct*100:.2f}%)")
                 
-                # Take Profit Realista
+                # 2. Take Profit (Meta cumplida)
                 elif pnl_pct >= TAKE_PROFIT_PCT:
                     signal = "VENTA FUERTE"
                     reasons.append(f"💰 TAKE PROFIT ({pnl_pct*100:.2f}%)")
                 
                 else:
-                    # SALIDA INTELIGENTE (Trailing Stop Manual)
-                    # Si ya ganamos algo (>0.5%) y el precio cae debajo de la EMA20, huimos.
-                    if current_price < ema20 and pnl_pct > 0.005:
-                        signal = "VENTA"
-                        reasons.append("Perdida de tendencia (EMA20)")
-                    elif rsi > 70: # Sobrecompra, mejor asegurar
-                        signal = "VENTA"
-                        reasons.append("RSI Alto (>70)")
+                    # 3. MODO HOLDING: No vendemos por indicadores suaves.
+                    # Solo avisamos si el precio cae bajo la EMA50 (cambio de tendencia grave)
+                    # Pero NO forzamos venta, solo sugerimos PRECAUCIÓN.
+                    if current_price < ema50:
+                        signal = "MANTENER" 
+                        reasons.append(f"Tendencia débil (Hold {pnl_pct*100:.2f}%)")
                     else:
                         signal = "MANTENER"
-                        reasons.append(f"PnL: {pnl_pct*100:.2f}%")
+                        reasons.append(f"En carrera: {pnl_pct*100:.2f}%")
 
-            # B) GESTIÓN DE COMPRA (MOMENTUM)
+            # B) BÚSQUEDA DE ENTRADA (Compras)
             elif pf["coin"] == 0:
-                # REGLAS DE ORO PARA ENTRAR (Filtrar basura):
-                # 1. TENDENCIA: Precio > EMA50 (Solo operamos a favor de la corriente)
-                # 2. IMPULSO: Precio > EMA20 (Está subiendo ahora mismo)
-                # 3. FUERZA: RSI > 50 (Hay compradores) PERO RSI < 70 (No llegamos tarde)
-                # 4. MACD: Histograma positivo (MACD > Signal)
                 
-                trend_ok = current_price > ema50
-                momentum_ok = current_price > ema20
-                rsi_ok = 50 < rsi < 70
-                macd_ok = macd > sig_line
-                
-                if trend_ok and momentum_ok and rsi_ok and macd_ok:
-                    signal = "COMPRA"
-                    reasons.append("🚀 IMPULSO CONFIRMADO")
+                # --- CHECK DE FONDOS (NUEVO) ---
+                if GLOBAL_USDT < 10:
+                    signal = "NEUTRAL"
+                    reasons.append("Sin Saldo USDT")
                 
                 else:
-                    signal = "NEUTRAL"
-                    if not trend_ok: reasons.append("Esperando Tendencia (Bajo EMA50)")
-                    elif not rsi_ok: reasons.append(f"RSI fuera de rango ({rsi:.0f})")
-                    elif not momentum_ok: reasons.append("Precio débil (Bajo EMA20)")
-                    else: reasons.append("Esperando cruce MACD")
+                    # Condiciones de Entrada (Tendencia + Fuerza):
+                    trend_ok = current_price > ema50
+                    trigger_ok = macd > sig_line
+                    # RSI < 65 para no comprar el techo
+                    room_ok = rsi < 65 
+                    
+                    if trend_ok and trigger_ok and room_ok:
+                        signal = "COMPRA"
+                        reasons.append("Entrada Swing Confirmada")
+                    else:
+                        signal = "NEUTRAL"
+                        if not trend_ok: reasons.append("Esperando Tendencia > EMA50")
+                        elif not trigger_ok: reasons.append("Esperando MACD")
+                        else: reasons.append("Esperando Oportunidad")
     else:
         reasons.append("Sincronizando...")
 
@@ -233,9 +228,24 @@ async def get_analisis(symbol: str = "BTCUSDT", current_price: float = 0.0):
 
 @app.get("/", response_class=HTMLResponse)
 def read_root():
+    # Detecta si corre en modo script normal o compilado
+    if getattr(sys, 'frozen', False):
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    
+    html_path = os.path.join(base_path, "index.html")
+    
+    if os.path.exists(html_path):
+        with open(html_path, "r", encoding="utf-8") as f: return f.read()
+    # Fallback para desarrollo local simple sin pyinstaller
     if os.path.exists("index.html"):
         with open("index.html", "r", encoding="utf-8") as f: return f.read()
-    return "<h1>Error: No index.html</h1>"
+        
+    return "<h1>Error: No index.html found</h1>"
+
+# Import necesario para la deteccion de rutas
+import sys
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
