@@ -1,8 +1,7 @@
-fastapi
-uvicorn
-pandas
-numpy
-requests
-matplotlib
-scipy
-yfinance
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pandas==2.2.0
+numpy==1.26.3
+requests==2.31.0
+yfinance==0.2.35
+pytz==2024.1
