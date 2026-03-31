@@ -489,38 +489,39 @@ def _run_backtest_symbol(df: pd.DataFrame):
 
 @app.get("/prices")
 async def get_current_prices():
-    """Obtiene precios actuales usando yfinance (optimizado)"""
-    def fetch_prices():
-        prices = {}
-        for symbol in SYMBOLS:
-            try:
-                yahoo_symbol = symbol.replace("USDT", "-USD")
-                ticker = yf.Ticker(yahoo_symbol)
-                # Método más rápido: usar info o fast_info
-                try:
-                    # Primero intentar fast_info (más rápido)
-                    price = ticker.fast_info.get('lastPrice', None)
-                    if price and price > 0:
-                        prices[symbol] = float(price)
-                        continue
-                except:
-                    pass
+    """Obtiene precios actuales desde CoinGecko API (rápido y confiable)"""
+    import aiohttp
 
-                # Fallback: usar history con periodo corto
-                hist = ticker.history(period="1d", interval="5m")
-                if not hist.empty:
-                    prices[symbol] = float(hist['Close'].iloc[-1])
+    # Mapeo de símbolos a IDs de CoinGecko
+    coin_ids = {
+        "BTCUSDT": "bitcoin",
+        "ETHUSDT": "ethereum",
+        "SOLUSDT": "solana",
+        "BNBUSDT": "binancecoin",
+        "ADAUSDT": "cardano"
+    }
+
+    try:
+        # Obtener todos los precios en una sola llamada
+        ids = ",".join(coin_ids.values())
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd"
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    prices = {}
+                    for symbol, coin_id in coin_ids.items():
+                        if coin_id in data and 'usd' in data[coin_id]:
+                            prices[symbol] = float(data[coin_id]['usd'])
+                        else:
+                            prices[symbol] = 0
+                    return prices
                 else:
-                    # Último fallback: precio del día
-                    info = ticker.info
-                    price = info.get('regularMarketPrice', 0) or info.get('currentPrice', 0)
-                    prices[symbol] = float(price) if price else 0
-            except Exception as e:
-                print(f"Error obteniendo {symbol}: {e}")
-                prices[symbol] = 0
-        return prices
-
-    return await run_in_threadpool(fetch_prices)
+                    return {sym: 0 for sym in SYMBOLS}
+    except Exception as e:
+        print(f"Error fetching prices from CoinGecko: {e}")
+        return {sym: 0 for sym in SYMBOLS}
 
 @app.get("/health")
 async def health_check():
