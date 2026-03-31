@@ -199,7 +199,8 @@
 
         initRadar();
         initWallet();
-        connectBinanceWS();
+        fetchPricesFromBackend();
+        startPriceLoop();
         startAnalysisLoop();
 
         function showToast(msg, type='success') {
@@ -288,19 +289,27 @@
             } catch(e) { tbody.innerHTML = '<tr><td colspan="4">Error</td></tr>'; }
         }
 
-        function connectBinanceWS() {
-            const streams = SYMBOLS.map(s => s.toLowerCase() + "@trade").join("/");
-            const url = `wss://stream.binance.com:9443/ws/${streams}`;
-            const ws = new WebSocket(url);
-            ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                const sym = data.s;
-                const price = parseFloat(data.p);
-                livePrices[sym] = price;
-                updateRadarPrice(sym, price);
-                if(sym === currentSymbol) updateMainPrice(price);
-            };
-            ws.onclose = () => setTimeout(connectBinanceWS, 5000);
+        async function fetchPricesFromBackend() {
+            try {
+                const res = await fetch('/prices');
+                const prices = await res.json();
+                Object.keys(prices).forEach(sym => {
+                    if(prices[sym] > 0) {
+                        livePrices[sym] = prices[sym];
+                        updateRadarPrice(sym, prices[sym]);
+                        if(sym === currentSymbol) updateMainPrice(prices[sym]);
+                    }
+                });
+            } catch(e) {
+                console.error('Error fetching prices:', e);
+            }
+        }
+
+        function startPriceLoop() {
+            fetchPricesFromBackend();
+            setInterval(() => {
+                fetchPricesFromBackend();
+            }, 2000);
         }
 
         function updateRadarPrice(sym, price) {
