@@ -489,24 +489,47 @@ def _run_backtest_symbol(df: pd.DataFrame):
 
 @app.get("/prices")
 async def get_current_prices():
-    """Obtiene precios actuales usando yfinance"""
+    """Obtiene precios actuales usando yfinance (optimizado)"""
     def fetch_prices():
         prices = {}
         for symbol in SYMBOLS:
             try:
                 yahoo_symbol = symbol.replace("USDT", "-USD")
                 ticker = yf.Ticker(yahoo_symbol)
-                # Obtener datos más recientes
-                hist = ticker.history(period="1d", interval="1m")
+                # Método más rápido: usar info o fast_info
+                try:
+                    # Primero intentar fast_info (más rápido)
+                    price = ticker.fast_info.get('lastPrice', None)
+                    if price and price > 0:
+                        prices[symbol] = float(price)
+                        continue
+                except:
+                    pass
+
+                # Fallback: usar history con periodo corto
+                hist = ticker.history(period="1d", interval="5m")
                 if not hist.empty:
                     prices[symbol] = float(hist['Close'].iloc[-1])
                 else:
-                    prices[symbol] = 0
-            except:
+                    # Último fallback: precio del día
+                    info = ticker.info
+                    price = info.get('regularMarketPrice', 0) or info.get('currentPrice', 0)
+                    prices[symbol] = float(price) if price else 0
+            except Exception as e:
+                print(f"Error obteniendo {symbol}: {e}")
                 prices[symbol] = 0
         return prices
 
     return await run_in_threadpool(fetch_prices)
+
+@app.get("/health")
+async def health_check():
+    """Endpoint de health check para verificar que la API funciona"""
+    return {
+        "status": "ok",
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "symbols": SYMBOLS
+    }
 
 @app.get("/backtest")
 async def backtest(symbol: str = "BTCUSDT"):

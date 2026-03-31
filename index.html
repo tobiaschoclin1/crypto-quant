@@ -291,25 +291,51 @@
 
         async function fetchPricesFromBackend() {
             try {
-                const res = await fetch('/prices');
+                console.log('Fetching prices from backend...');
+                const res = await fetch('/prices', {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+
+                if (!res.ok) {
+                    console.error('Error response:', res.status);
+                    return;
+                }
+
                 const prices = await res.json();
+                console.log('Prices received:', prices);
+
+                let pricesUpdated = 0;
                 Object.keys(prices).forEach(sym => {
-                    if(prices[sym] > 0) {
+                    if(prices[sym] && prices[sym] > 0) {
                         livePrices[sym] = prices[sym];
                         updateRadarPrice(sym, prices[sym]);
-                        if(sym === currentSymbol) updateMainPrice(prices[sym]);
+                        if(sym === currentSymbol) {
+                            updateMainPrice(prices[sym]);
+                            document.getElementById('tradePriceInput').value = prices[sym];
+                        }
+                        pricesUpdated++;
                     }
                 });
+
+                if(pricesUpdated > 0) {
+                    console.log(`✓ ${pricesUpdated} prices updated successfully`);
+                } else {
+                    console.warn('No prices were updated');
+                }
             } catch(e) {
                 console.error('Error fetching prices:', e);
             }
         }
 
         function startPriceLoop() {
+            // Primera carga inmediata
             fetchPricesFromBackend();
+
+            // Luego cada 5 segundos (más estable que 2 seg)
             setInterval(() => {
                 fetchPricesFromBackend();
-            }, 2000);
+            }, 5000);
         }
 
         function updateRadarPrice(sym, price) {
