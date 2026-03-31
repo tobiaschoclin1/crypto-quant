@@ -9,7 +9,6 @@ from datetime import datetime
 import pytz
 import yfinance as yf
 import numpy as np
-import requests
 from typing import Dict, Any
 
 app = FastAPI()
@@ -490,20 +489,24 @@ def _run_backtest_symbol(df: pd.DataFrame):
 
 @app.get("/prices")
 async def get_current_prices():
-    """Obtiene precios actuales de Binance API"""
-    try:
+    """Obtiene precios actuales usando yfinance"""
+    def fetch_prices():
         prices = {}
         for symbol in SYMBOLS:
-            url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
-            response = requests.get(url, timeout=5)
-            if response.status_code == 200:
-                data = response.json()
-                prices[symbol] = float(data['price'])
-            else:
+            try:
+                yahoo_symbol = symbol.replace("USDT", "-USD")
+                ticker = yf.Ticker(yahoo_symbol)
+                # Obtener datos más recientes
+                hist = ticker.history(period="1d", interval="1m")
+                if not hist.empty:
+                    prices[symbol] = float(hist['Close'].iloc[-1])
+                else:
+                    prices[symbol] = 0
+            except:
                 prices[symbol] = 0
         return prices
-    except:
-        return {sym: 0 for sym in SYMBOLS}
+
+    return await run_in_threadpool(fetch_prices)
 
 @app.get("/backtest")
 async def backtest(symbol: str = "BTCUSDT"):
