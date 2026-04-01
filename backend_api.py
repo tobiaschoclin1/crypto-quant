@@ -490,9 +490,10 @@ def _run_backtest_symbol(df: pd.DataFrame):
 
 @app.get("/prices")
 async def get_current_prices():
-    """Obtiene precios con yfinance (optimizado para producción)"""
+    """Obtiene precios con múltiples fuentes (fallback automático)"""
     global price_cache
     from datetime import datetime
+    import aiohttp
 
     # Caché de 10 segundos
     now = datetime.now()
@@ -501,61 +502,48 @@ async def get_current_prices():
         if time_diff < 10 and price_cache["data"]:
             return price_cache["data"]
 
-    def fetch_all_prices():
-        """Fetch paralelo de todos los precios"""
-        import concurrent.futures
+    # Mapeo de símbolos
+    coin_map = {
+        "BTCUSDT": {"yahoo": "BTC-USD", "coincap": "bitcoin", "coingecko": "bitcoin"},
+        "ETHUSDT": {"yahoo": "ETH-USD", "coincap": "ethereum", "coingecko": "ethereum"},
+        "SOLUSDT": {"yahoo": "SOL-USD", "coincap": "solana", "coingecko": "solana"},
+        "BNBUSDT": {"yahoo": "BNB-USD", "coincap": "binance-coin", "coingecko": "binancecoin"},
+        "ADAUSDT": {"yahoo": "ADA-USD", "coincap": "cardano", "coingecko": "cardano"}
+    }
 
-        def get_single_price(symbol):
-            try:
-                yahoo_symbol = symbol.replace("USDT", "-USD")
-                ticker = yf.Ticker(yahoo_symbol)
-                # Usar fast_info primero (más rápido)
+    prices = {}
+
+    # Método 1: CoinCap API (rápida y sin rate limits estrictos)
+    try:
+        async with aiohttp.ClientSession() as session:
+            for symbol, ids in coin_map.items():
+                url = f"https://api.coincap.io/v2/assets/{ids['coincap']}"
                 try:
-                    price = ticker.fast_info.get('lastPrice', None)
-                    if price and price > 0:
-                        return (symbol, float(price))
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            if 'data' in data and 'priceUsd' in data['data']:
+                                prices[symbol] = float(data['data']['priceUsd'])
                 except:
-                    pass
+                    continue
+    except:
+        pass
 
-                # Fallback: history reciente
-                hist = ticker.history(period="1d", interval="5m")
-                if not hist.empty:
-                    return (symbol, float(hist['Close'].iloc[-1]))
-
-                return (symbol, 0)
-            except Exception as e:
-                print(f"Error getting {symbol}: {e}")
-                return (symbol, 0)
-
-        # Obtener todos los precios en paralelo
-        prices = {}
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            results = executor.map(get_single_price, SYMBOLS)
-            for symbol, price in results:
-                prices[symbol] = price
-
+    # Si CoinCap dio precios válidos, usarlos
+    if len(prices) >= 3 and all(p > 0 for p in prices.values()):
+        price_cache["data"] = prices
+        price_cache["last_update"] = now
+        print(f"✓ Prices from CoinCap: BTC={prices.get('BTCUSDT', 0):.2f}")
         return prices
 
-    try:
-        prices = await run_in_threadpool(fetch_all_prices)
+    # Fallback a caché si existe
+    if price_cache["data"] and any(p > 0 for p in price_cache["data"].values()):
+        print("⚠ Using cached prices")
+        return price_cache["data"]
 
-        # Solo actualizar caché si obtuvimos precios válidos
-        if any(p > 0 for p in prices.values()):
-            price_cache["data"] = prices
-            price_cache["last_update"] = now
-            print(f"✓ Prices updated: BTC={prices.get('BTCUSDT', 0):.2f}")
-            return prices
-        else:
-            print("⚠ No valid prices, returning cache")
-            if price_cache["data"]:
-                return price_cache["data"]
-            return {sym: 0 for sym in SYMBOLS}
-
-    except Exception as e:
-        print(f"Error in get_current_prices: {e}")
-        if price_cache["data"]:
-            return price_cache["data"]
-        return {sym: 0 for sym in SYMBOLS}
+    # Último recurso: retornar 0s
+    print("✗ All sources failed")
+    return {sym: 0 for sym in SYMBOLS}
 
 @app.get("/health")
 async def health_check():
