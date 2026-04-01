@@ -566,6 +566,57 @@ async def health_check():
         "symbols": SYMBOLS
     }
 
+@app.get("/test_prices")
+async def test_prices_debug():
+    """Endpoint de diagnóstico para ver por qué fallan los precios"""
+    import traceback
+    results = {}
+
+    # Test 1: yfinance con BTC
+    try:
+        ticker = yf.Ticker("BTC-USD")
+        results["yfinance_ticker_created"] = True
+
+        try:
+            fast_info = ticker.fast_info
+            price = fast_info.get('lastPrice', None)
+            results["yfinance_fast_info"] = {"price": price, "success": price is not None}
+        except Exception as e:
+            results["yfinance_fast_info"] = {"error": str(e), "traceback": traceback.format_exc()}
+
+        try:
+            hist = ticker.history(period="1d", interval="5m")
+            if not hist.empty:
+                price = float(hist['Close'].iloc[-1])
+                results["yfinance_history"] = {"price": price, "rows": len(hist)}
+            else:
+                results["yfinance_history"] = {"error": "Empty dataframe"}
+        except Exception as e:
+            results["yfinance_history"] = {"error": str(e), "traceback": traceback.format_exc()}
+
+    except Exception as e:
+        results["yfinance_ticker_created"] = False
+        results["yfinance_error"] = str(e)
+        results["yfinance_traceback"] = traceback.format_exc()
+
+    # Test 2: Binance API
+    try:
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT",
+                                  timeout=aiohttp.ClientTimeout(total=10)) as response:
+                results["binance_status"] = response.status
+                if response.status == 200:
+                    data = await response.json()
+                    results["binance_data"] = data
+                else:
+                    results["binance_error"] = await response.text()
+    except Exception as e:
+        results["binance_error"] = str(e)
+        results["binance_traceback"] = traceback.format_exc()
+
+    return results
+
 @app.get("/backtest")
 async def backtest(symbol: str = "BTCUSDT"):
     if symbol not in SYMBOLS:
