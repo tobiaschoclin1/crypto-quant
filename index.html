@@ -338,10 +338,10 @@
         }
 
         function startPriceLoop() {
-            // Actualizar cada 2 segundos (tiempo real)
+            // Actualizar cada 10 segundos (yfinance actualiza ~cada 5-10 seg)
             setInterval(() => {
                 fetchPricesFromBackend();
-            }, 2000);
+            }, 10000);
         }
 
         function updateRadarPrice(sym, price) {

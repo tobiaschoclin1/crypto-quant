@@ -490,50 +490,69 @@ def _run_backtest_symbol(df: pd.DataFrame):
 
 @app.get("/prices")
 async def get_current_prices():
-    """Obtiene precios desde Binance API (actualización en tiempo real)"""
+    """Obtiene precios con yfinance (optimizado para producción)"""
     global price_cache
-    import aiohttp
     from datetime import datetime
 
-    # Verificar caché (2 segundos de validez para tiempo real)
+    # Caché de 10 segundos
     now = datetime.now()
     if price_cache["last_update"]:
         time_diff = (now - price_cache["last_update"]).total_seconds()
-        if time_diff < 2 and price_cache["data"]:
+        if time_diff < 10 and price_cache["data"]:
             return price_cache["data"]
 
+    def fetch_all_prices():
+        """Fetch paralelo de todos los precios"""
+        import concurrent.futures
+
+        def get_single_price(symbol):
+            try:
+                yahoo_symbol = symbol.replace("USDT", "-USD")
+                ticker = yf.Ticker(yahoo_symbol)
+                # Usar fast_info primero (más rápido)
+                try:
+                    price = ticker.fast_info.get('lastPrice', None)
+                    if price and price > 0:
+                        return (symbol, float(price))
+                except:
+                    pass
+
+                # Fallback: history reciente
+                hist = ticker.history(period="1d", interval="5m")
+                if not hist.empty:
+                    return (symbol, float(hist['Close'].iloc[-1]))
+
+                return (symbol, 0)
+            except Exception as e:
+                print(f"Error getting {symbol}: {e}")
+                return (symbol, 0)
+
+        # Obtener todos los precios en paralelo
+        prices = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            results = executor.map(get_single_price, SYMBOLS)
+            for symbol, price in results:
+                prices[symbol] = price
+
+        return prices
+
     try:
-        # Usar Binance API que actualiza en tiempo real
-        url = "https://api.binance.com/api/v3/ticker/price"
+        prices = await run_in_threadpool(fetch_all_prices)
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
-                if response.status == 200:
-                    data = await response.json()
+        # Solo actualizar caché si obtuvimos precios válidos
+        if any(p > 0 for p in prices.values()):
+            price_cache["data"] = prices
+            price_cache["last_update"] = now
+            print(f"✓ Prices updated: BTC={prices.get('BTCUSDT', 0):.2f}")
+            return prices
+        else:
+            print("⚠ No valid prices, returning cache")
+            if price_cache["data"]:
+                return price_cache["data"]
+            return {sym: 0 for sym in SYMBOLS}
 
-                    # Filtrar solo los símbolos que necesitamos
-                    prices = {}
-                    for item in data:
-                        if item['symbol'] in SYMBOLS:
-                            prices[item['symbol']] = float(item['price'])
-
-                    # Asegurar que tenemos todos los símbolos
-                    for sym in SYMBOLS:
-                        if sym not in prices:
-                            prices[sym] = 0
-
-                    # Actualizar caché
-                    price_cache["data"] = prices
-                    price_cache["last_update"] = now
-                    print(f"✓ Prices updated from Binance: {list(prices.values())[:3]}...")
-                    return prices
-                else:
-                    print(f"Binance API error: {response.status}")
-                    if price_cache["data"]:
-                        return price_cache["data"]
-                    return {sym: 0 for sym in SYMBOLS}
     except Exception as e:
-        print(f"Error fetching from Binance: {e}")
+        print(f"Error in get_current_prices: {e}")
         if price_cache["data"]:
             return price_cache["data"]
         return {sym: 0 for sym in SYMBOLS}
