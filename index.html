@@ -198,14 +198,18 @@
         const audioSell = new Audio('https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.mp3');
 
         // Esperar a que el DOM esté listo
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', async function() {
             console.log('DOM loaded, initializing app...');
             initRadar();
             initWallet();
-            fetchPricesFromBackend();
+
+            // Cargar precios INMEDIATAMENTE (sin esperar)
+            await fetchPricesFromBackend();
+
+            // Iniciar loops
             startPriceLoop();
             startAnalysisLoop();
-            console.log('App initialized, prices should update every 3 seconds');
+            console.log('App initialized - prices update every 2 seconds');
         });
 
         function showToast(msg, type='success') {
@@ -334,13 +338,10 @@
         }
 
         function startPriceLoop() {
-            // Primera carga inmediata
-            fetchPricesFromBackend();
-
-            // Actualizar cada 3 segundos (backend cachea por 5 seg)
+            // Actualizar cada 2 segundos (tiempo real)
             setInterval(() => {
                 fetchPricesFromBackend();
-            }, 3000);
+            }, 2000);
         }
 
         function updateRadarPrice(sym, price) {
@@ -382,19 +383,19 @@
         }
 
         function startAnalysisLoop() {
-            // Primera ejecución inmediata
+            // Primera ejecución rápida (1 segundo después de tener precios)
             setTimeout(() => {
                 SYMBOLS.forEach(sym => {
                     if(livePrices[sym] > 0) fetchAnalysis(sym);
                 });
-            }, 2000);
+            }, 1000);
 
-            // Luego cada 10 segundos (análisis más pesado)
+            // Luego cada 8 segundos (más frecuente)
             setInterval(() => {
                 SYMBOLS.forEach(sym => {
                     if(livePrices[sym] > 0) fetchAnalysis(sym);
                 });
-            }, 10000);
+            }, 8000);
         }
 
         async function fetchAnalysis(sym) {

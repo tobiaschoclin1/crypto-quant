@@ -490,61 +490,51 @@ def _run_backtest_symbol(df: pd.DataFrame):
 
 @app.get("/prices")
 async def get_current_prices():
-    """Obtiene precios actuales desde CoinGecko API con caché de 5 segundos"""
+    """Obtiene precios desde Binance API (actualización en tiempo real)"""
     global price_cache
     import aiohttp
     from datetime import datetime
 
-    # Verificar caché (5 segundos de validez)
+    # Verificar caché (2 segundos de validez para tiempo real)
     now = datetime.now()
     if price_cache["last_update"]:
         time_diff = (now - price_cache["last_update"]).total_seconds()
-        if time_diff < 5 and price_cache["data"]:
-            print(f"Returning cached prices (age: {time_diff:.1f}s)")
+        if time_diff < 2 and price_cache["data"]:
             return price_cache["data"]
 
-    # Mapeo de símbolos a IDs de CoinGecko
-    coin_ids = {
-        "BTCUSDT": "bitcoin",
-        "ETHUSDT": "ethereum",
-        "SOLUSDT": "solana",
-        "BNBUSDT": "binancecoin",
-        "ADAUSDT": "cardano"
-    }
-
     try:
-        # Obtener todos los precios en una sola llamada
-        ids = ",".join(coin_ids.values())
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd"
+        # Usar Binance API que actualiza en tiempo real
+        url = "https://api.binance.com/api/v3/ticker/price"
 
-        print(f"Fetching fresh prices from CoinGecko...")
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
                 if response.status == 200:
                     data = await response.json()
+
+                    # Filtrar solo los símbolos que necesitamos
                     prices = {}
-                    for symbol, coin_id in coin_ids.items():
-                        if coin_id in data and 'usd' in data[coin_id]:
-                            prices[symbol] = float(data[coin_id]['usd'])
-                        else:
-                            prices[symbol] = 0
+                    for item in data:
+                        if item['symbol'] in SYMBOLS:
+                            prices[item['symbol']] = float(item['price'])
+
+                    # Asegurar que tenemos todos los símbolos
+                    for sym in SYMBOLS:
+                        if sym not in prices:
+                            prices[sym] = 0
 
                     # Actualizar caché
                     price_cache["data"] = prices
                     price_cache["last_update"] = now
-                    print(f"✓ Prices updated: {prices}")
+                    print(f"✓ Prices updated from Binance: {list(prices.values())[:3]}...")
                     return prices
                 else:
-                    print(f"CoinGecko error: {response.status}")
-                    # Retornar caché si existe
+                    print(f"Binance API error: {response.status}")
                     if price_cache["data"]:
                         return price_cache["data"]
                     return {sym: 0 for sym in SYMBOLS}
     except Exception as e:
-        print(f"Error fetching prices from CoinGecko: {e}")
-        # Retornar caché si existe
+        print(f"Error fetching from Binance: {e}")
         if price_cache["data"]:
-            print("Returning stale cache due to error")
             return price_cache["data"]
         return {sym: 0 for sym in SYMBOLS}
 
