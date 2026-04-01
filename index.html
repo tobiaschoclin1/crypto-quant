@@ -332,10 +332,10 @@
             // Primera carga inmediata
             fetchPricesFromBackend();
 
-            // Luego cada 5 segundos (más estable que 2 seg)
+            // Actualizar cada 3 segundos (backend cachea por 5 seg)
             setInterval(() => {
                 fetchPricesFromBackend();
-            }, 5000);
+            }, 3000);
         }
 
         function updateRadarPrice(sym, price) {
@@ -369,11 +369,19 @@
         }
 
         function startAnalysisLoop() {
+            // Primera ejecución inmediata
+            setTimeout(() => {
+                SYMBOLS.forEach(sym => {
+                    if(livePrices[sym] > 0) fetchAnalysis(sym);
+                });
+            }, 2000);
+
+            // Luego cada 10 segundos (análisis más pesado)
             setInterval(() => {
                 SYMBOLS.forEach(sym => {
                     if(livePrices[sym] > 0) fetchAnalysis(sym);
                 });
-            }, 3000);
+            }, 10000);
         }
 
         async function fetchAnalysis(sym) {

@@ -31,8 +31,9 @@ real_portfolio = {
     sym: {"usdt": 0.0, "coin": 0.0, "avg_price": 0.0, "highest_price": 0.0}
     for sym in SYMBOLS
 }
-TRADE_LOG = [] 
-market_data_cache = {} 
+TRADE_LOG = []
+market_data_cache = {}
+price_cache = {"data": {}, "last_update": None} 
 
 @app.post("/set_balance")
 async def set_balance(request: Request):
@@ -489,8 +490,18 @@ def _run_backtest_symbol(df: pd.DataFrame):
 
 @app.get("/prices")
 async def get_current_prices():
-    """Obtiene precios actuales desde CoinGecko API (rápido y confiable)"""
+    """Obtiene precios actuales desde CoinGecko API con caché de 5 segundos"""
+    global price_cache
     import aiohttp
+    from datetime import datetime
+
+    # Verificar caché (5 segundos de validez)
+    now = datetime.now()
+    if price_cache["last_update"]:
+        time_diff = (now - price_cache["last_update"]).total_seconds()
+        if time_diff < 5 and price_cache["data"]:
+            print(f"Returning cached prices (age: {time_diff:.1f}s)")
+            return price_cache["data"]
 
     # Mapeo de símbolos a IDs de CoinGecko
     coin_ids = {
@@ -506,6 +517,7 @@ async def get_current_prices():
         ids = ",".join(coin_ids.values())
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd"
 
+        print(f"Fetching fresh prices from CoinGecko...")
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                 if response.status == 200:
@@ -516,11 +528,24 @@ async def get_current_prices():
                             prices[symbol] = float(data[coin_id]['usd'])
                         else:
                             prices[symbol] = 0
+
+                    # Actualizar caché
+                    price_cache["data"] = prices
+                    price_cache["last_update"] = now
+                    print(f"✓ Prices updated: {prices}")
                     return prices
                 else:
+                    print(f"CoinGecko error: {response.status}")
+                    # Retornar caché si existe
+                    if price_cache["data"]:
+                        return price_cache["data"]
                     return {sym: 0 for sym in SYMBOLS}
     except Exception as e:
         print(f"Error fetching prices from CoinGecko: {e}")
+        # Retornar caché si existe
+        if price_cache["data"]:
+            print("Returning stale cache due to error")
+            return price_cache["data"]
         return {sym: 0 for sym in SYMBOLS}
 
 @app.get("/health")
