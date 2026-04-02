@@ -490,7 +490,7 @@ def _run_backtest_symbol(df: pd.DataFrame):
 
 @app.get("/prices")
 async def get_current_prices():
-    """Obtiene precios con múltiples fuentes (fallback automático)"""
+    """Obtiene precios usando CryptoCompare API (sin restricciones geográficas)"""
     global price_cache
     from datetime import datetime
     import aiohttp
@@ -502,47 +502,56 @@ async def get_current_prices():
         if time_diff < 10 and price_cache["data"]:
             return price_cache["data"]
 
-    # Mapeo de símbolos
-    coin_map = {
-        "BTCUSDT": {"yahoo": "BTC-USD", "coincap": "bitcoin", "coingecko": "bitcoin"},
-        "ETHUSDT": {"yahoo": "ETH-USD", "coincap": "ethereum", "coingecko": "ethereum"},
-        "SOLUSDT": {"yahoo": "SOL-USD", "coincap": "solana", "coingecko": "solana"},
-        "BNBUSDT": {"yahoo": "BNB-USD", "coincap": "binance-coin", "coingecko": "binancecoin"},
-        "ADAUSDT": {"yahoo": "ADA-USD", "coincap": "cardano", "coingecko": "cardano"}
+    # Símbolos simplificados (BTC, ETH, SOL, BNB, ADA)
+    symbols_simple = ["BTC", "ETH", "SOL", "BNB", "ADA"]
+    symbol_map = {
+        "BTC": "BTCUSDT",
+        "ETH": "ETHUSDT",
+        "SOL": "SOLUSDT",
+        "BNB": "BNBUSDT",
+        "ADA": "ADAUSDT"
     }
 
-    prices = {}
-
-    # Método 1: CoinCap API (rápida y sin rate limits estrictos)
     try:
-        async with aiohttp.ClientSession() as session:
-            for symbol, ids in coin_map.items():
-                url = f"https://api.coincap.io/v2/assets/{ids['coincap']}"
-                try:
-                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            if 'data' in data and 'priceUsd' in data['data']:
-                                prices[symbol] = float(data['data']['priceUsd'])
-                except:
-                    continue
-    except:
-        pass
+        # CryptoCompare permite múltiples símbolos en una sola llamada
+        fsyms = ",".join(symbols_simple)
+        url = f"https://min-api.cryptocompare.com/data/pricemulti?fsyms={fsyms}&tsyms=USD"
 
-    # Si CoinCap dio precios válidos, usarlos
-    if len(prices) >= 3 and all(p > 0 for p in prices.values()):
-        price_cache["data"] = prices
-        price_cache["last_update"] = now
-        print(f"✓ Prices from CoinCap: BTC={prices.get('BTCUSDT', 0):.2f}")
-        return prices
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    prices = {}
+
+                    # Parsear respuesta
+                    for short_sym, full_sym in symbol_map.items():
+                        if short_sym in data and 'USD' in data[short_sym]:
+                            prices[full_sym] = float(data[short_sym]['USD'])
+                        else:
+                            prices[full_sym] = 0
+
+                    # Validar que tengamos al menos algunos precios
+                    valid_count = sum(1 for p in prices.values() if p > 0)
+                    if valid_count >= 3:
+                        price_cache["data"] = prices
+                        price_cache["last_update"] = now
+                        print(f"✓ Prices from CryptoCompare: BTC=${prices.get('BTCUSDT', 0):.2f}, valid={valid_count}/5")
+                        return prices
+                    else:
+                        print(f"⚠ Too few valid prices: {valid_count}/5")
+                else:
+                    print(f"✗ CryptoCompare HTTP {response.status}")
+
+    except Exception as e:
+        print(f"✗ Error fetching from CryptoCompare: {e}")
 
     # Fallback a caché si existe
     if price_cache["data"] and any(p > 0 for p in price_cache["data"].values()):
-        print("⚠ Using cached prices")
+        print("→ Using cached prices")
         return price_cache["data"]
 
     # Último recurso: retornar 0s
-    print("✗ All sources failed")
+    print("✗ All sources failed, returning zeros")
     return {sym: 0 for sym in SYMBOLS}
 
 @app.get("/health")
