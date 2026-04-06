@@ -92,12 +92,45 @@
         .modal-btn.yes { background: var(--red); color: white; }
         .modal-btn.no { background: #334155; color: white; }
 
+        .lang-selector {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            background: var(--card);
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 8px 12px;
+            display: flex;
+            gap: 5px;
+            align-items: center;
+        }
+        .lang-btn {
+            background: transparent;
+            border: none;
+            color: #64748b;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .lang-btn:hover {
+            color: var(--accent);
+            background: rgba(59, 130, 246, 0.1);
+        }
+        .lang-btn.active {
+            color: var(--accent);
+            background: rgba(59, 130, 246, 0.2);
+        }
+
         @media (max-width: 768px) {
             body { flex-direction: column; }
             .main-content { order: 1; padding: 15px; padding-bottom: 180px !important; }
-            .sidebar { 
+            .sidebar {
                 order: 2; width: 100%; height: auto; background: #0f172a; border-right: none; border-top: 1px solid #334155;
-                padding: 10px 15px; display: flex; flex-direction: column; gap: 5px; 
+                padding: 10px 15px; display: flex; flex-direction: column; gap: 5px;
                 position: fixed; bottom: 0; left: 0; z-index: 1000; box-shadow: 0 -4px 20px rgba(0,0,0,0.6);
             }
             .sidebar-title { display: none; }
@@ -108,10 +141,21 @@
             .trade-panel { padding: 20px 15px; }
             .btn-buy, .btn-sell { padding: 15px; font-size: 16px; }
             .ops-grid { gap: 10px; }
+            .lang-selector {
+                top: auto;
+                bottom: 200px;
+                right: 15px;
+            }
         }
     </style>
 </head>
 <body>
+
+    <div class="lang-selector">
+        <button class="lang-btn" id="langEs" onclick="changeLanguage('es')">ES</button>
+        <span style="color: #334155;">|</span>
+        <button class="lang-btn" id="langEn" onclick="changeLanguage('en')">EN</button>
+    </div>
 
     <div id="notification-area"></div>
 
@@ -130,27 +174,27 @@
 
     <div id="confirmModal" class="modal">
         <div class="modal-content" style="max-width:350px;">
-            <h3 style="color:white; margin-top:0;">⚠️ Confirmar Acción</h3>
+            <h3 style="color:white; margin-top:0;" id="confirmTitle">⚠️ Confirmar Acción</h3>
             <p id="confirmText" style="color:#94a3b8; font-size:16px;">¿Estás seguro?</p>
             <div class="confirm-btn-row">
-                <button class="modal-btn no" onclick="closeConfirm()">Cancelar</button>
+                <button class="modal-btn no" onclick="closeConfirm()" id="btnCancel">Cancelar</button>
                 <button class="modal-btn yes" id="confirmYesBtn">SÍ, HACERLO</button>
             </div>
         </div>
     </div>
 
     <div class="sidebar">
-        <div class="sidebar-title">MI CAJA</div>
+        <div class="sidebar-title" id="titleMyWallet">MI CAJA</div>
         <div class="wallet-item usdt-box">
             <div class="usdt-row">
                 <span class="wallet-sym" style="color:var(--green); font-size:16px;">USDT</span>
                 <div>$<input type="number" id="usdtInput" class="balance-input" value="0.00" onchange="updateUSDTManual()"></div>
             </div>
         </div>
-        <div class="sidebar-title" style="margin-top:10px">MONEDAS</div>
+        <div class="sidebar-title" style="margin-top:10px" id="titleCoins">MONEDAS</div>
         <div id="walletList"></div>
         <div style="margin-top: auto; display:none" id="resetBtnDesktop">
-             <button onclick="askConfirm('¿Reiniciar historial y saldos?', resetBackend)" style="width:100%; background:transparent; border:1px solid #334155; color:#64748b; padding:8px; border-radius:6px; cursor:pointer; font-size:11px;">RESET SISTEMA</button>
+             <button onclick="askConfirm('¿Reiniciar historial y saldos?', resetBackend)" style="width:100%; background:transparent; border:1px solid #334155; color:#64748b; padding:8px; border-radius:6px; cursor:pointer; font-size:11px;" id="btnReset">RESET SISTEMA</button>
         </div>
     </div>
 
@@ -162,54 +206,95 @@
             <div id="mainSignal" class="signal-banner" style="background:#334155; color:#94a3b8">...</div>
             <div id="reasons" style="font-size:12px; color:#64748b;">Conectando...</div>
             <div class="price-input-row">
-                <span style="color:#64748b; font-size:11px; font-weight:bold; letter-spacing:1px;">OPERANDO A:</span>
+                <span style="color:#64748b; font-size:11px; font-weight:bold; letter-spacing:1px;" id="labelTradingAt">OPERANDO A:</span>
                 <input type="number" id="tradePriceInput" class="price-manual" placeholder="0.00">
             </div>
             <div class="ops-grid">
                 <div class="op-col">
-                    <div class="op-title" style="color:var(--green)">COMPRAR</div>
+                    <div class="op-title" style="color:var(--green)" id="titleBuy">COMPRAR</div>
                     <div class="input-wrapper">
                         <input type="number" id="buyAmount" placeholder="0">
                         <span class="input-suffix">USDT</span>
                     </div>
-                    <button class="btn-buy" onclick="executeTrade('COMPRA')">COMPRAR</button>
+                    <button class="btn-buy" onclick="executeTrade('COMPRA')" id="btnBuy">COMPRAR</button>
                 </div>
                 <div class="op-col">
-                    <div class="op-title" style="color:var(--red)">VENDER</div>
+                    <div class="op-title" style="color:var(--red)" id="titleSell">VENDER</div>
                     <div class="input-wrapper">
                         <input type="number" id="sellAmount" placeholder="0.00">
                         <span class="input-suffix" id="sellSuffix">COIN</span>
                     </div>
-                    <button class="btn-sell" onclick="executeTrade('VENTA')">VENDER</button>
-                    <div style="font-size:11px; color:#64748b; text-align:right; cursor:pointer; margin-top:5px; text-decoration:underline;" onclick="setMaxSell()">Vender Todo</div>
+                    <button class="btn-sell" onclick="executeTrade('VENTA')" id="btnSell">VENDER</button>
+                    <div style="font-size:11px; color:#64748b; text-align:right; cursor:pointer; margin-top:5px; text-decoration:underline;" onclick="setMaxSell()" id="btnSellAll">Vender Todo</div>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
+        // ===== SISTEMA DE TRADUCCIÓN =====
+        let currentLang = localStorage.getItem('lang') || 'es';
+
+        const translations = {
+            es: {
+                confirmTitle: '⚠️ Confirmar Acción', confirmQuestion: '¿Estás seguro?',
+                btnCancel: 'Cancelar', btnConfirm: 'SÍ, HACERLO',
+                titleMyWallet: 'MI CAJA', titleCoins: 'MONEDAS', btnReset: 'RESET SISTEMA',
+                histTitle: 'Historial', labelTradingAt: 'OPERANDO A:',
+                titleBuy: 'COMPRAR', titleSell: 'VENDER',
+                btnBuy: 'COMPRAR', btnSell: 'VENDER', btnSellAll: 'Vender Todo',
+                connecting: 'Conectando...', syncing: 'Sincronizando...'
+            },
+            en: {
+                confirmTitle: '⚠️ Confirm Action', confirmQuestion: 'Are you sure?',
+                btnCancel: 'Cancel', btnConfirm: 'YES, DO IT',
+                titleMyWallet: 'MY WALLET', titleCoins: 'COINS', btnReset: 'RESET SYSTEM',
+                histTitle: 'History', labelTradingAt: 'TRADING AT:',
+                titleBuy: 'BUY', titleSell: 'SELL',
+                btnBuy: 'BUY', btnSell: 'SELL', btnSellAll: 'Sell All',
+                connecting: 'Connecting...', syncing: 'Syncing...'
+            }
+        };
+
+        function changeLanguage(lang) {
+            currentLang = lang;
+            localStorage.setItem('lang', lang);
+            document.querySelectorAll('.lang-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('lang' + lang.charAt(0).toUpperCase() + lang.slice(1)).classList.add('active');
+
+            const t = translations[lang];
+            Object.keys(t).forEach(key => {
+                const elem = document.getElementById(key);
+                if (elem) elem.innerText = t[key];
+            });
+            document.documentElement.lang = lang;
+        }
+
+        function t(key) { return translations[currentLang][key] || key; }
+
+        // ===== APP VARIABLES =====
         const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"];
         let currentSymbol = 'BTCUSDT';
         let livePrices = { "BTCUSDT": 0, "ETHUSDT": 0, "SOLUSDT": 0, "BNBUSDT": 0, "ADAUSDT": 0 };
         let lastSignals = {};
-        let myPortfolio = {}; 
-        
+        let myPortfolio = {};
+
         const audioBuy = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
         const audioSell = new Audio('https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.mp3');
 
         // Esperar a que el DOM esté listo
         document.addEventListener('DOMContentLoaded', async function() {
             console.log('DOM loaded, initializing app...');
+
+            // Aplicar idioma guardado
+            changeLanguage(currentLang);
+
             initRadar();
             initWallet();
-
-            // Cargar precios INMEDIATAMENTE (sin esperar)
             await fetchPricesFromBackend();
-
-            // Iniciar loops
             startPriceLoop();
             startAnalysisLoop();
-            console.log('App initialized - prices update every 2 seconds');
+            console.log('App initialized - prices update every 10 seconds');
         });
 
         function showToast(msg, type='success') {
@@ -467,12 +552,12 @@
             let amt = 0;
             if(action === 'COMPRA') {
                 amt = document.getElementById('buyAmount').value;
-                if(!amt) return showToast("Ingresa monto USDT", "error");
+                if(!amt) return showToast(currentLang === 'es' ? "Ingresa monto USDT" : "Enter USDT amount", "error");
             } else {
                 amt = document.getElementById('sellAmount').value;
-                if(!amt) return showToast("Ingresa cantidad Coins", "error");
+                if(!amt) return showToast(currentLang === 'es' ? "Ingresa cantidad Coins" : "Enter coins amount", "error");
             }
-            if(!prc || prc <= 0) return showToast("Verifica Precio", "error");
+            if(!prc || prc <= 0) return showToast(currentLang === 'es' ? "Verifica Precio" : "Verify Price", "error");
 
             const res = await fetch('/registrar_trade', {
                 method: 'POST',
@@ -484,7 +569,10 @@
             const d = await res.json();
             if(d.error) showToast(d.error, "error");
             else {
-                showToast(`¡${action} Exitosa!`, "success");
+                const successMsg = action === 'COMPRA'
+                    ? (currentLang === 'es' ? '¡COMPRA Exitosa!' : 'BUY Successful!')
+                    : (currentLang === 'es' ? '¡VENTA Exitosa!' : 'SELL Successful!');
+                showToast(successMsg, "success");
                 document.getElementById('buyAmount').value = "";
                 document.getElementById('sellAmount').value = "";
                 fetchAnalysis(currentSymbol);
