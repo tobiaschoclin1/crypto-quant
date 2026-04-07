@@ -491,17 +491,17 @@ def _run_backtest_symbol(df: pd.DataFrame):
 
 @app.get("/prices")
 def get_current_prices():
-    """Obtiene precios con múltiples fuentes y caché"""
+    """Obtiene precios con múltiples fuentes y caché corto"""
     global price_cache
     from datetime import datetime
     import traceback
 
-    # Caché de 2 MINUTOS (120 seg) para balance entre frescura y rate limits
+    # Caché de 30 SEGUNDOS para sincronizar con el frontend
     now = datetime.now()
     if price_cache["last_update"]:
         time_diff = (now - price_cache["last_update"]).total_seconds()
-        if time_diff < 120 and price_cache["data"] and any(p > 0 for p in price_cache["data"].values()):
-            print(f"→ Cache hit (age: {time_diff:.1f}s)")
+        if time_diff < 30 and price_cache["data"] and any(p > 0 for p in price_cache["data"].values()):
+            print(f"→ Cache hit (age: {time_diff:.1f}s / 30s)")
             return price_cache["data"]
 
     prices = {}

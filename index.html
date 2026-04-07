@@ -244,8 +244,9 @@
         <div class="trade-panel">
             <div id="bigSymbol" class="big-symbol">BTC / USDT</div>
             <div id="bigPrice" class="big-price">---</div>
+            <div id="lastUpdate" style="font-size:10px; color:#475569; margin-top:-5px; margin-bottom:10px;">●</div>
             <div id="mainSignal" class="signal-banner" style="background:#334155; color:#94a3b8">...</div>
-            <div id="reasons" style="font-size:12px; color:#64748b;">Conectando...</div>
+            <div id="reasons" style="font-size:12px; color:#64748b; display:none;"></div>
             <div class="price-input-row">
                 <span style="color:#64748b; font-size:11px; font-weight:bold; letter-spacing:1px;" id="labelTradingAt">OPERANDO A:</span>
                 <input type="number" id="tradePriceInput" class="price-manual" placeholder="0.00">
@@ -445,37 +446,56 @@
 
         async function fetchPricesFromBackend() {
             try {
-                console.log('Fetching prices from backend...');
+                const timestamp = new Date().toLocaleTimeString();
+                console.log(`[${timestamp}] Fetching prices from backend...`);
+
                 const res = await fetch('/prices', {
                     method: 'GET',
-                    headers: { 'Accept': 'application/json' }
+                    headers: { 'Accept': 'application/json' },
+                    cache: 'no-cache'  // Evitar caché del navegador
                 });
 
                 if (!res.ok) {
-                    console.error('Error response:', res.status);
+                    console.error(`[${timestamp}] Error response:`, res.status);
                     return;
                 }
 
                 const prices = await res.json();
-                console.log('Prices received:', prices);
+                console.log(`[${timestamp}] Prices received:`, prices);
 
                 let pricesUpdated = 0;
                 Object.keys(prices).forEach(sym => {
                     if(prices[sym] && prices[sym] > 0) {
+                        const oldPrice = livePrices[sym];
                         livePrices[sym] = prices[sym];
                         updateRadarPrice(sym, prices[sym]);
+
                         if(sym === currentSymbol) {
                             updateMainPrice(prices[sym]);
                             document.getElementById('tradePriceInput').value = prices[sym];
                         }
+
                         pricesUpdated++;
+
+                        // Log si el precio cambió
+                        if(oldPrice !== prices[sym]) {
+                            const change = ((prices[sym] - oldPrice) / oldPrice * 100).toFixed(2);
+                            console.log(`  ${sym}: $${oldPrice.toFixed(2)} → $${prices[sym].toFixed(2)} (${change > 0 ? '+' : ''}${change}%)`);
+                        }
                     }
                 });
 
                 if(pricesUpdated > 0) {
-                    console.log(`✓ ${pricesUpdated} prices updated successfully`);
+                    console.log(`✓ ${pricesUpdated}/5 prices updated at ${timestamp}`);
+                    // Actualizar indicador de última actualización
+                    const updateEl = document.getElementById('lastUpdate');
+                    if(updateEl) {
+                        updateEl.innerText = `● Updated ${timestamp}`;
+                        updateEl.style.color = '#22c55e';
+                        setTimeout(() => { updateEl.style.color = '#475569'; }, 2000);
+                    }
                 } else {
-                    console.warn('No prices were updated');
+                    console.warn(`⚠ No prices were updated at ${timestamp}`);
                 }
             } catch(e) {
                 console.error('Error fetching prices:', e);
@@ -483,10 +503,12 @@
         }
 
         function startPriceLoop() {
-            // Actualizar cada 30 segundos (backend cachea por 5 min)
+            // Actualizar cada 30 segundos (sincronizado con caché del backend)
             setInterval(() => {
+                console.log('⏰ Price update interval triggered');
                 fetchPricesFromBackend();
             }, 30000);
+            console.log('✓ Price update loop started (every 30s)');
         }
 
         function updateRadarPrice(sym, price) {
@@ -572,7 +594,11 @@
                         if(data.decision.includes("VENTA")) { bg = "#ef4444"; col = "white"; }
                         if(data.decision.includes("MANTENER")) { bg = "#3b82f6"; col = "white"; }
                         ms.style.background = bg; ms.style.color = col;
-                        document.getElementById('reasons').innerText = data.detalles.join(" | ");
+
+                        // Ocultar div de detalles (no mostrar razones)
+                        const reasonsDiv = document.getElementById('reasons');
+                        reasonsDiv.style.display = 'none';
+
                         if(document.getElementById('tradePriceInput').value === "") {
                              document.getElementById('tradePriceInput').value = currentP;
                         }
