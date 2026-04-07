@@ -94,42 +94,73 @@
 
         .lang-selector {
             position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
+            bottom: 20px;
+            right: 20px;
             z-index: 10000;
+        }
+        .lang-toggle-btn {
+            background: var(--card);
+            border: 1px solid #334155;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 24px;
+            transition: all 0.3s;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .lang-toggle-btn:hover {
+            border-color: var(--accent);
+            background: #2d3748;
+            transform: scale(1.05);
+        }
+        .lang-dropdown {
+            position: absolute;
+            bottom: 60px;
+            right: 0;
             background: var(--card);
             border: 1px solid #334155;
             border-radius: 8px;
-            padding: 8px 12px;
-            display: flex;
-            gap: 5px;
-            align-items: center;
-            margin-left: 0;
+            padding: 8px;
+            display: none;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 120px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
         }
-        .lang-btn {
+        .lang-dropdown.show {
+            display: flex;
+        }
+        .lang-option {
             background: transparent;
             border: none;
-            color: #64748b;
+            color: #94a3b8;
             font-size: 14px;
-            font-weight: bold;
+            font-weight: 600;
             cursor: pointer;
-            padding: 4px 8px;
-            border-radius: 4px;
+            padding: 10px 12px;
+            border-radius: 6px;
             transition: all 0.2s;
+            text-align: left;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        .lang-btn:hover {
-            color: var(--accent);
+        .lang-option:hover {
             background: rgba(59, 130, 246, 0.1);
-        }
-        .lang-btn.active {
             color: var(--accent);
+        }
+        .lang-option.active {
             background: rgba(59, 130, 246, 0.2);
+            color: var(--accent);
         }
 
         @media (max-width: 768px) {
-            body { flex-direction: column; }
-            .main-content { order: 1; padding: 15px; padding-bottom: 180px !important; }
+            body { flex-direction: column; position: relative; }
+            .main-content { order: 1; padding: 15px; padding-top: 70px; padding-bottom: 180px !important; }
             .sidebar {
                 order: 2; width: 100%; height: auto; background: #0f172a; border-right: none; border-top: 1px solid #334155;
                 padding: 10px 15px; display: flex; flex-direction: column; gap: 5px;
@@ -144,9 +175,15 @@
             .btn-buy, .btn-sell { padding: 15px; font-size: 16px; }
             .ops-grid { gap: 10px; }
             .lang-selector {
-                top: 10px;
-                left: 50%;
-                transform: translateX(-50%);
+                position: absolute;
+                top: 15px;
+                right: 15px;
+                bottom: auto;
+            }
+            .lang-toggle-btn {
+                width: 44px;
+                height: 44px;
+                font-size: 20px;
             }
         }
     </style>
@@ -154,9 +191,11 @@
 <body>
 
     <div class="lang-selector">
-        <button class="lang-btn" id="langEs" onclick="changeLanguage('es')">ES</button>
-        <span style="color: #334155;">|</span>
-        <button class="lang-btn" id="langEn" onclick="changeLanguage('en')">EN</button>
+        <button class="lang-toggle-btn" onclick="toggleLangDropdown()">🌐</button>
+        <div class="lang-dropdown" id="langDropdown">
+            <button class="lang-option" id="langEs" onclick="changeLanguage('es')">🇪🇸 Español</button>
+            <button class="lang-option" id="langEn" onclick="changeLanguage('en')">🇬🇧 English</button>
+        </div>
     </div>
 
     <div id="notification-area"></div>
@@ -258,10 +297,15 @@
             }
         };
 
+        function toggleLangDropdown() {
+            const dropdown = document.getElementById('langDropdown');
+            dropdown.classList.toggle('show');
+        }
+
         function changeLanguage(lang) {
             currentLang = lang;
             localStorage.setItem('lang', lang);
-            document.querySelectorAll('.lang-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.lang-option').forEach(btn => btn.classList.remove('active'));
             document.getElementById('lang' + lang.charAt(0).toUpperCase() + lang.slice(1)).classList.add('active');
 
             const t = translations[lang];
@@ -270,9 +314,21 @@
                 if (elem) elem.innerText = t[key];
             });
             document.documentElement.lang = lang;
+
+            // Cerrar dropdown
+            document.getElementById('langDropdown').classList.remove('show');
         }
 
         function t(key) { return translations[currentLang][key] || key; }
+
+        // Cerrar dropdown al hacer click fuera
+        document.addEventListener('click', function(event) {
+            const langSelector = document.querySelector('.lang-selector');
+            const dropdown = document.getElementById('langDropdown');
+            if (langSelector && !langSelector.contains(event.target)) {
+                dropdown.classList.remove('show');
+            }
+        });
 
         // ===== APP VARIABLES =====
         const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"];
@@ -288,7 +344,9 @@
         document.addEventListener('DOMContentLoaded', async function() {
             console.log('DOM loaded, initializing app...');
 
-            // Aplicar idioma guardado
+            // Aplicar idioma guardado y marcar opción activa
+            const langId = 'lang' + currentLang.charAt(0).toUpperCase() + currentLang.slice(1);
+            document.getElementById(langId).classList.add('active');
             changeLanguage(currentLang);
 
             initRadar();
