@@ -493,12 +493,14 @@ def get_current_prices():
     """Obtiene precios usando CryptoCompare API (requests sync, más confiable)"""
     global price_cache
     from datetime import datetime
+    import traceback
 
     # Caché de 10 segundos
     now = datetime.now()
     if price_cache["last_update"]:
         time_diff = (now - price_cache["last_update"]).total_seconds()
         if time_diff < 10 and price_cache["data"]:
+            print(f"→ Returning cached prices (age: {time_diff:.1f}s)")
             return price_cache["data"]
 
     # Símbolos simplificados (BTC, ETH, SOL, BNB, ADA)
@@ -516,9 +518,13 @@ def get_current_prices():
         fsyms = ",".join(symbols_simple)
         url = f"https://min-api.cryptocompare.com/data/pricemulti?fsyms={fsyms}&tsyms=USD"
 
+        print(f"→ Fetching prices from: {url}")
         response = requests.get(url, timeout=10)
+        print(f"→ Response status: {response.status_code}")
+
         if response.status_code == 200:
             data = response.json()
+            print(f"→ Response data: {data}")
             prices = {}
 
             # Parsear respuesta
@@ -530,18 +536,21 @@ def get_current_prices():
 
             # Validar que tengamos al menos algunos precios
             valid_count = sum(1 for p in prices.values() if p > 0)
+            print(f"→ Parsed {valid_count}/5 valid prices")
+
             if valid_count >= 3:
                 price_cache["data"] = prices
                 price_cache["last_update"] = now
                 print(f"✓ Prices from CryptoCompare: BTC=${prices.get('BTCUSDT', 0):.2f}, valid={valid_count}/5")
                 return prices
             else:
-                print(f"⚠ Too few valid prices: {valid_count}/5")
+                print(f"⚠ Too few valid prices: {valid_count}/5, data={prices}")
         else:
-            print(f"✗ CryptoCompare HTTP {response.status_code}")
+            print(f"✗ CryptoCompare HTTP {response.status_code}, body={response.text[:200]}")
 
     except Exception as e:
         print(f"✗ Error fetching from CryptoCompare: {e}")
+        print(f"✗ Traceback: {traceback.format_exc()}")
 
     # Fallback a caché si existe
     if price_cache["data"] and any(p > 0 for p in price_cache["data"].values()):
@@ -552,6 +561,8 @@ def get_current_prices():
     print("✗ All sources failed, returning zeros")
     return {sym: 0 for sym in SYMBOLS}
 
+price_debug_log = []
+
 @app.get("/health")
 async def health_check():
     """Endpoint de health check para verificar que la API funciona"""
@@ -560,6 +571,65 @@ async def health_check():
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "symbols": SYMBOLS
     }
+
+@app.get("/debug_prices")
+def debug_prices():
+    """Endpoint de debug que intenta obtener precios y retorna info detallada"""
+    import traceback
+    result = {"attempts": []}
+
+    # Intento 1: CryptoCompare
+    try:
+        url = "https://min-api.cryptocompare.com/data/pricemulti?fsyms=BTC,ETH&tsyms=USD"
+        response = requests.get(url, timeout=10)
+        result["attempts"].append({
+            "source": "CryptoCompare",
+            "url": url,
+            "status": response.status_code,
+            "success": response.status_code == 200,
+            "data": response.json() if response.status_code == 200 else response.text[:200]
+        })
+    except Exception as e:
+        result["attempts"].append({
+            "source": "CryptoCompare",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        })
+
+    # Intento 2: CoinGecko
+    try:
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
+        response = requests.get(url, timeout=10)
+        result["attempts"].append({
+            "source": "CoinGecko",
+            "url": url,
+            "status": response.status_code,
+            "success": response.status_code == 200,
+            "data": response.json() if response.status_code == 200 else response.text[:200]
+        })
+    except Exception as e:
+        result["attempts"].append({
+            "source": "CoinGecko",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        })
+
+    # Intento 3: Prueba de conectividad básica
+    try:
+        url = "https://httpbin.org/get"
+        response = requests.get(url, timeout=10)
+        result["attempts"].append({
+            "source": "httpbin.org (connectivity test)",
+            "status": response.status_code,
+            "success": response.status_code == 200
+        })
+    except Exception as e:
+        result["attempts"].append({
+            "source": "httpbin.org",
+            "error": str(e)
+        })
+
+    return result
 
 @app.get("/test_prices")
 async def test_prices_debug():
