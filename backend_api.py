@@ -489,11 +489,10 @@ def _run_backtest_symbol(df: pd.DataFrame):
     }
 
 @app.get("/prices")
-async def get_current_prices():
-    """Obtiene precios usando CryptoCompare API (sin restricciones geográficas)"""
+def get_current_prices():
+    """Obtiene precios usando CryptoCompare API (requests sync, más confiable)"""
     global price_cache
     from datetime import datetime
-    import aiohttp
 
     # Caché de 10 segundos
     now = datetime.now()
@@ -517,30 +516,29 @@ async def get_current_prices():
         fsyms = ",".join(symbols_simple)
         url = f"https://min-api.cryptocompare.com/data/pricemulti?fsyms={fsyms}&tsyms=USD"
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    prices = {}
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            prices = {}
 
-                    # Parsear respuesta
-                    for short_sym, full_sym in symbol_map.items():
-                        if short_sym in data and 'USD' in data[short_sym]:
-                            prices[full_sym] = float(data[short_sym]['USD'])
-                        else:
-                            prices[full_sym] = 0
-
-                    # Validar que tengamos al menos algunos precios
-                    valid_count = sum(1 for p in prices.values() if p > 0)
-                    if valid_count >= 3:
-                        price_cache["data"] = prices
-                        price_cache["last_update"] = now
-                        print(f"✓ Prices from CryptoCompare: BTC=${prices.get('BTCUSDT', 0):.2f}, valid={valid_count}/5")
-                        return prices
-                    else:
-                        print(f"⚠ Too few valid prices: {valid_count}/5")
+            # Parsear respuesta
+            for short_sym, full_sym in symbol_map.items():
+                if short_sym in data and 'USD' in data[short_sym]:
+                    prices[full_sym] = float(data[short_sym]['USD'])
                 else:
-                    print(f"✗ CryptoCompare HTTP {response.status}")
+                    prices[full_sym] = 0
+
+            # Validar que tengamos al menos algunos precios
+            valid_count = sum(1 for p in prices.values() if p > 0)
+            if valid_count >= 3:
+                price_cache["data"] = prices
+                price_cache["last_update"] = now
+                print(f"✓ Prices from CryptoCompare: BTC=${prices.get('BTCUSDT', 0):.2f}, valid={valid_count}/5")
+                return prices
+            else:
+                print(f"⚠ Too few valid prices: {valid_count}/5")
+        else:
+            print(f"✗ CryptoCompare HTTP {response.status_code}")
 
     except Exception as e:
         print(f"✗ Error fetching from CryptoCompare: {e}")

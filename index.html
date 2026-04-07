@@ -45,7 +45,7 @@
 
         .main-content { flex: 1; padding: 30px; overflow-y: auto; display: flex; flex-direction: column; gap: 25px; }
 
-        .radar-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 15px; }
+        .radar-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 15px; margin-top: 50px; }
         .radar-card { background: var(--card); padding: 12px; border-radius: 10px; border: 1px solid #334155; cursor: pointer; text-align: center; transition: 0.2s; }
         .radar-card:hover { transform: translateY(-3px); border-color: var(--accent); }
         .radar-card.active { border-color: var(--accent); background: #1e3a8a; box-shadow: 0 0 15px rgba(59, 130, 246, 0.3); }
@@ -95,7 +95,8 @@
         .lang-selector {
             position: fixed;
             top: 20px;
-            right: 20px;
+            left: 50%;
+            transform: translateX(-50%);
             z-index: 9999;
             background: var(--card);
             border: 1px solid #334155;
@@ -142,9 +143,9 @@
             .btn-buy, .btn-sell { padding: 15px; font-size: 16px; }
             .ops-grid { gap: 10px; }
             .lang-selector {
-                top: auto;
-                bottom: 200px;
-                right: 15px;
+                top: 10px;
+                left: 50%;
+                transform: translateX(-50%);
             }
         }
     </style>
