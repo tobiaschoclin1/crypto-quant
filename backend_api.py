@@ -491,98 +491,119 @@ def _run_backtest_symbol(df: pd.DataFrame):
 
 @app.get("/prices")
 def get_current_prices():
-    """Obtiene precios con múltiples fuentes y caché largo"""
+    """Obtiene precios con múltiples fuentes y caché"""
     global price_cache
     from datetime import datetime
     import traceback
 
-    # Caché de 5 MINUTOS (300 seg) para evitar rate limits
+    # Caché de 2 MINUTOS (120 seg) para balance entre frescura y rate limits
     now = datetime.now()
     if price_cache["last_update"]:
         time_diff = (now - price_cache["last_update"]).total_seconds()
-        if time_diff < 300 and price_cache["data"]:
-            print(f"→ Returning cached prices (age: {time_diff:.1f}s / 300s)")
+        if time_diff < 120 and price_cache["data"] and any(p > 0 for p in price_cache["data"].values()):
+            print(f"→ Cache hit (age: {time_diff:.1f}s)")
             return price_cache["data"]
 
-    # Mapeo de símbolos
-    symbol_map = {
-        "BTC": "BTCUSDT",
-        "ETH": "ETHUSDT",
-        "SOL": "SOLUSDT",
-        "BNB": "BNBUSDT",
-        "ADA": "ADAUSDT"
-    }
-
     prices = {}
+    print(f"\n=== Fetching fresh prices at {now.strftime('%H:%M:%S')} ===")
 
-    # FUENTE 1: CoinCap.io (sin rate limits estrictos)
+    # FUENTE 1: CoinGecko Simple API (más generosa con rate limits)
+    try:
+        print("→ Trying CoinGecko...")
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,binancecoin,cardano&vs_currencies=usd"
+        response = requests.get(url, timeout=8, headers={'Accept': 'application/json'})
+        print(f"  CoinGecko status: {response.status_code}")
+
+        if response.status_code == 200:
+            data = response.json()
+            print(f"  CoinGecko response: {data}")
+
+            mapping = {
+                "bitcoin": "BTCUSDT",
+                "ethereum": "ETHUSDT",
+                "solana": "SOLUSDT",
+                "binancecoin": "BNBUSDT",
+                "cardano": "ADAUSDT"
+            }
+
+            for coin_id, symbol in mapping.items():
+                if coin_id in data and 'usd' in data[coin_id]:
+                    prices[symbol] = float(data[coin_id]['usd'])
+
+            if len(prices) >= 3:
+                print(f"✓ CoinGecko SUCCESS: {len(prices)}/5 prices")
+                for sym, price in prices.items():
+                    print(f"  {sym}: ${price:.2f}")
+                price_cache["data"] = prices
+                price_cache["last_update"] = now
+                return prices
+        else:
+            print(f"  CoinGecko failed: {response.text[:200]}")
+    except Exception as e:
+        print(f"✗ CoinGecko error: {str(e)}")
+        traceback.print_exc()
+
+    # FUENTE 2: CoinCap.io
+    prices = {}  # Reset
     try:
         print("→ Trying CoinCap.io...")
-        coin_ids = {
-            "BTC": "bitcoin",
-            "ETH": "ethereum",
-            "SOL": "solana",
-            "BNB": "binance-coin",
-            "ADA": "cardano"
-        }
+        coin_ids = ["bitcoin", "ethereum", "solana", "binance-coin", "cardano"]
+        symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
 
-        for short_sym, coin_id in coin_ids.items():
+        for coin_id, symbol in zip(coin_ids, symbols):
             try:
                 url = f"https://api.coincap.io/v2/assets/{coin_id}"
                 response = requests.get(url, timeout=5)
                 if response.status_code == 200:
                     data = response.json()
                     if 'data' in data and 'priceUsd' in data['data']:
-                        prices[symbol_map[short_sym]] = float(data['data']['priceUsd'])
-            except:
+                        price = float(data['data']['priceUsd'])
+                        prices[symbol] = price
+                        print(f"  {symbol}: ${price:.2f}")
+            except Exception as e:
+                print(f"  {symbol} failed: {e}")
                 continue
 
         if len(prices) >= 3:
+            print(f"✓ CoinCap SUCCESS: {len(prices)}/5 prices")
             price_cache["data"] = prices
             price_cache["last_update"] = now
-            print(f"✓ CoinCap.io: {len(prices)}/5 prices - BTC=${prices.get('BTCUSDT', 0):.2f}")
             return prices
     except Exception as e:
-        print(f"✗ CoinCap error: {e}")
+        print(f"✗ CoinCap error: {str(e)}")
 
-    # FUENTE 2: Kraken API pública (sin autenticación)
+    # FUENTE 3: Binance API (puede estar bloqueada en algunas regiones)
+    prices = {}  # Reset
     try:
-        print("→ Trying Kraken API...")
-        kraken_pairs = {
-            "XXBTZUSD": "BTCUSDT",
-            "XETHZUSD": "ETHUSDT",
-            "SOLUSD": "SOLUSDT",
-            "BNBUSD": "BNBUSDT",
-            "ADAUSD": "ADAUSDT"
-        }
+        print("→ Trying Binance...")
+        symbols_binance = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
+        url = "https://api.binance.com/api/v3/ticker/price"
 
-        url = "https://api.kraken.com/0/public/Ticker?pair=" + ",".join(kraken_pairs.keys())
-        response = requests.get(url, timeout=10)
-
+        response = requests.get(url, timeout=8)
         if response.status_code == 200:
             data = response.json()
-            if 'result' in data:
-                for kraken_sym, our_sym in kraken_pairs.items():
-                    if kraken_sym in data['result']:
-                        price = float(data['result'][kraken_sym]['c'][0])
-                        prices[our_sym] = price
+            for item in data:
+                if item['symbol'] in symbols_binance:
+                    prices[item['symbol']] = float(item['price'])
 
-        if len(prices) >= 3:
-            price_cache["data"] = prices
-            price_cache["last_update"] = now
-            print(f"✓ Kraken: {len(prices)}/5 prices - BTC=${prices.get('BTCUSDT', 0):.2f}")
-            return prices
+            if len(prices) >= 3:
+                print(f"✓ Binance SUCCESS: {len(prices)}/5 prices")
+                price_cache["data"] = prices
+                price_cache["last_update"] = now
+                return prices
+        else:
+            print(f"  Binance status {response.status_code}: {response.text[:200]}")
     except Exception as e:
-        print(f"✗ Kraken error: {e}")
+        print(f"✗ Binance error: {str(e)}")
 
-    # Fallback a caché aunque sea viejo
+    # Fallback: usar caché aunque sea viejo (mejor que 0s)
     if price_cache["data"] and any(p > 0 for p in price_cache["data"].values()):
-        age = (now - price_cache["last_update"]).total_seconds() if price_cache["last_update"] else 0
-        print(f"→ Using stale cache (age: {age:.0f}s)")
+        age = (now - price_cache["last_update"]).total_seconds()
+        print(f"⚠ Using stale cache (age: {age:.0f}s)")
         return price_cache["data"]
 
-    # Último recurso
-    print("✗ All sources failed, returning zeros")
+    # Último recurso: retornar 0s
+    print("✗ ALL SOURCES FAILED - returning zeros")
     return {sym: 0 for sym in SYMBOLS}
 
 price_debug_log = []
