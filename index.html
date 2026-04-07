@@ -295,7 +295,7 @@
             await fetchPricesFromBackend();
             startPriceLoop();
             startAnalysisLoop();
-            console.log('App initialized - prices update every 10 seconds');
+            console.log('App initialized - prices update every 30 seconds');
         });
 
         function showToast(msg, type='success') {
@@ -424,10 +424,10 @@
         }
 
         function startPriceLoop() {
-            // Actualizar cada 10 segundos (yfinance actualiza ~cada 5-10 seg)
+            // Actualizar cada 30 segundos (backend cachea por 5 min)
             setInterval(() => {
                 fetchPricesFromBackend();
-            }, 10000);
+            }, 30000);
         }
 
         function updateRadarPrice(sym, price) {

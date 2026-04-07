@@ -491,21 +491,20 @@ def _run_backtest_symbol(df: pd.DataFrame):
 
 @app.get("/prices")
 def get_current_prices():
-    """Obtiene precios usando CryptoCompare API (requests sync, más confiable)"""
+    """Obtiene precios con múltiples fuentes y caché largo"""
     global price_cache
     from datetime import datetime
     import traceback
 
-    # Caché de 10 segundos
+    # Caché de 5 MINUTOS (300 seg) para evitar rate limits
     now = datetime.now()
     if price_cache["last_update"]:
         time_diff = (now - price_cache["last_update"]).total_seconds()
-        if time_diff < 10 and price_cache["data"]:
-            print(f"→ Returning cached prices (age: {time_diff:.1f}s)")
+        if time_diff < 300 and price_cache["data"]:
+            print(f"→ Returning cached prices (age: {time_diff:.1f}s / 300s)")
             return price_cache["data"]
 
-    # Símbolos simplificados (BTC, ETH, SOL, BNB, ADA)
-    symbols_simple = ["BTC", "ETH", "SOL", "BNB", "ADA"]
+    # Mapeo de símbolos
     symbol_map = {
         "BTC": "BTCUSDT",
         "ETH": "ETHUSDT",
@@ -514,51 +513,75 @@ def get_current_prices():
         "ADA": "ADAUSDT"
     }
 
-    try:
-        # CryptoCompare permite múltiples símbolos en una sola llamada
-        fsyms = ",".join(symbols_simple)
-        url = f"https://min-api.cryptocompare.com/data/pricemulti?fsyms={fsyms}&tsyms=USD"
+    prices = {}
 
-        print(f"→ Fetching prices from: {url}")
+    # FUENTE 1: CoinCap.io (sin rate limits estrictos)
+    try:
+        print("→ Trying CoinCap.io...")
+        coin_ids = {
+            "BTC": "bitcoin",
+            "ETH": "ethereum",
+            "SOL": "solana",
+            "BNB": "binance-coin",
+            "ADA": "cardano"
+        }
+
+        for short_sym, coin_id in coin_ids.items():
+            try:
+                url = f"https://api.coincap.io/v2/assets/{coin_id}"
+                response = requests.get(url, timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    if 'data' in data and 'priceUsd' in data['data']:
+                        prices[symbol_map[short_sym]] = float(data['data']['priceUsd'])
+            except:
+                continue
+
+        if len(prices) >= 3:
+            price_cache["data"] = prices
+            price_cache["last_update"] = now
+            print(f"✓ CoinCap.io: {len(prices)}/5 prices - BTC=${prices.get('BTCUSDT', 0):.2f}")
+            return prices
+    except Exception as e:
+        print(f"✗ CoinCap error: {e}")
+
+    # FUENTE 2: Kraken API pública (sin autenticación)
+    try:
+        print("→ Trying Kraken API...")
+        kraken_pairs = {
+            "XXBTZUSD": "BTCUSDT",
+            "XETHZUSD": "ETHUSDT",
+            "SOLUSD": "SOLUSDT",
+            "BNBUSD": "BNBUSDT",
+            "ADAUSD": "ADAUSDT"
+        }
+
+        url = "https://api.kraken.com/0/public/Ticker?pair=" + ",".join(kraken_pairs.keys())
         response = requests.get(url, timeout=10)
-        print(f"→ Response status: {response.status_code}")
 
         if response.status_code == 200:
             data = response.json()
-            print(f"→ Response data: {data}")
-            prices = {}
+            if 'result' in data:
+                for kraken_sym, our_sym in kraken_pairs.items():
+                    if kraken_sym in data['result']:
+                        price = float(data['result'][kraken_sym]['c'][0])
+                        prices[our_sym] = price
 
-            # Parsear respuesta
-            for short_sym, full_sym in symbol_map.items():
-                if short_sym in data and 'USD' in data[short_sym]:
-                    prices[full_sym] = float(data[short_sym]['USD'])
-                else:
-                    prices[full_sym] = 0
-
-            # Validar que tengamos al menos algunos precios
-            valid_count = sum(1 for p in prices.values() if p > 0)
-            print(f"→ Parsed {valid_count}/5 valid prices")
-
-            if valid_count >= 3:
-                price_cache["data"] = prices
-                price_cache["last_update"] = now
-                print(f"✓ Prices from CryptoCompare: BTC=${prices.get('BTCUSDT', 0):.2f}, valid={valid_count}/5")
-                return prices
-            else:
-                print(f"⚠ Too few valid prices: {valid_count}/5, data={prices}")
-        else:
-            print(f"✗ CryptoCompare HTTP {response.status_code}, body={response.text[:200]}")
-
+        if len(prices) >= 3:
+            price_cache["data"] = prices
+            price_cache["last_update"] = now
+            print(f"✓ Kraken: {len(prices)}/5 prices - BTC=${prices.get('BTCUSDT', 0):.2f}")
+            return prices
     except Exception as e:
-        print(f"✗ Error fetching from CryptoCompare: {e}")
-        print(f"✗ Traceback: {traceback.format_exc()}")
+        print(f"✗ Kraken error: {e}")
 
-    # Fallback a caché si existe
+    # Fallback a caché aunque sea viejo
     if price_cache["data"] and any(p > 0 for p in price_cache["data"].values()):
-        print("→ Using cached prices")
+        age = (now - price_cache["last_update"]).total_seconds() if price_cache["last_update"] else 0
+        print(f"→ Using stale cache (age: {age:.0f}s)")
         return price_cache["data"]
 
-    # Último recurso: retornar 0s
+    # Último recurso
     print("✗ All sources failed, returning zeros")
     return {sym: 0 for sym in SYMBOLS}
 
