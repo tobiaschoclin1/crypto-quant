@@ -9,6 +9,7 @@ from datetime import datetime
 import pytz
 import yfinance as yf
 import numpy as np
+import requests
 from typing import Dict, Any
 
 app = FastAPI()
