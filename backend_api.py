@@ -627,6 +627,47 @@ async def health_check():
         "symbols": SYMBOLS
     }
 
+@app.get("/test_apis")
+async def test_apis_simple():
+    """Prueba directa de las APIs sin la lógica compleja"""
+    import traceback
+    results = {}
+
+    # Test 1: CoinGecko
+    try:
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd"
+        response = requests.get(url, timeout=10, headers={'Accept': 'application/json'})
+        results["coingecko"] = {
+            "status": response.status_code,
+            "data": response.json() if response.status_code == 200 else response.text[:300]
+        }
+    except Exception as e:
+        results["coingecko"] = {"error": str(e), "traceback": traceback.format_exc()}
+
+    # Test 2: Binance
+    try:
+        url = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+        response = requests.get(url, timeout=10)
+        results["binance"] = {
+            "status": response.status_code,
+            "data": response.json() if response.status_code == 200 else response.text[:300]
+        }
+    except Exception as e:
+        results["binance"] = {"error": str(e), "traceback": traceback.format_exc()}
+
+    # Test 3: CoinCap
+    try:
+        url = "https://api.coincap.io/v2/assets/bitcoin"
+        response = requests.get(url, timeout=10)
+        results["coincap"] = {
+            "status": response.status_code,
+            "data": response.json() if response.status_code == 200 else response.text[:300]
+        }
+    except Exception as e:
+        results["coincap"] = {"error": str(e), "traceback": traceback.format_exc()}
+
+    return results
+
 @app.get("/force_refresh")
 async def force_refresh_prices():
     """Fuerza la actualización de precios y retorna el resultado"""
