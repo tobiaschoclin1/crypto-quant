@@ -627,6 +627,25 @@ async def health_check():
         "symbols": SYMBOLS
     }
 
+@app.get("/force_refresh")
+async def force_refresh_prices():
+    """Fuerza la actualización de precios y retorna el resultado"""
+    global price_cache
+    from fastapi.concurrency import run_in_threadpool
+
+    # Limpiar caché para forzar refresh
+    price_cache["data"] = {}
+    price_cache["last_update"] = None
+
+    # Obtener precios frescos
+    prices = await run_in_threadpool(get_current_prices)
+
+    return {
+        "success": any(p > 0 for p in prices.values()) if prices else False,
+        "prices": prices,
+        "cache_updated": price_cache["last_update"].isoformat() if price_cache["last_update"] else None
+    }
+
 @app.get("/debug_prices")
 def debug_prices():
     """Endpoint de debug que intenta obtener precios y retorna info detallada"""
@@ -780,14 +799,20 @@ async def startup_warmup():
     """Pre-carga precios al iniciar para evitar mostrar 0s en cold start"""
     print("🔥 Warmup: Pre-cargando precios al arrancar...")
     try:
-        # Ejecutar inmediatamente y esperar resultado para asegurar que el caché se llena
-        prices = get_current_prices()
+        # Ejecutar en threadpool porque get_current_prices() es síncrona y hace requests bloqueantes
+        from fastapi.concurrency import run_in_threadpool
+        prices = await run_in_threadpool(get_current_prices)
         if prices and any(p > 0 for p in prices.values()):
             print(f"✅ Warmup exitoso: {sum(1 for p in prices.values() if p > 0)}/5 precios cargados")
+            for sym, price in prices.items():
+                if price > 0:
+                    print(f"   {sym}: ${price:,.2f}")
         else:
             print("⚠️ Warmup: No se pudieron cargar precios al arrancar")
     except Exception as e:
+        import traceback
         print(f"❌ Error en warmup: {e}")
+        traceback.print_exc()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
