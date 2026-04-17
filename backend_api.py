@@ -512,7 +512,11 @@ def get_current_prices():
     try:
         print("→ Trying CoinGecko...")
         url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,binancecoin,cardano&vs_currencies=usd"
-        response = requests.get(url, timeout=8, headers={'Accept': 'application/json'})
+        headers = {
+            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = requests.get(url, timeout=15, headers=headers)
         print(f"  CoinGecko status: {response.status_code}")
 
         if response.status_code == 200:
@@ -554,7 +558,8 @@ def get_current_prices():
         for coin_id, symbol in zip(coin_ids, symbols):
             try:
                 url = f"https://api.coincap.io/v2/assets/{coin_id}"
-                response = requests.get(url, timeout=5)
+                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+                response = requests.get(url, timeout=10, headers=headers)
                 if response.status_code == 200:
                     data = response.json()
                     if 'data' in data and 'priceUsd' in data['data']:
@@ -579,8 +584,9 @@ def get_current_prices():
         print("→ Trying Binance...")
         symbols_binance = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
         url = "https://api.binance.com/api/v3/ticker/price"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
-        response = requests.get(url, timeout=8)
+        response = requests.get(url, timeout=15, headers=headers)
         if response.status_code == 200:
             data = response.json()
             for item in data:
