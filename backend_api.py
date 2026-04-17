@@ -496,12 +496,13 @@ def get_current_prices():
     from datetime import datetime
     import traceback
 
-    # Caché de 30 SEGUNDOS para sincronizar con el frontend
+    # Caché de 6 MINUTOS (para que nunca expire entre pings de UptimeRobot que son cada 5 min)
+    CACHE_DURATION = 360  # 6 minutos en segundos
     now = datetime.now()
     if price_cache["last_update"]:
         time_diff = (now - price_cache["last_update"]).total_seconds()
-        if time_diff < 30 and price_cache["data"] and any(p > 0 for p in price_cache["data"].values()):
-            print(f"→ Cache hit (age: {time_diff:.1f}s / 30s)")
+        if time_diff < CACHE_DURATION and price_cache["data"] and any(p > 0 for p in price_cache["data"].values()):
+            print(f"→ Cache hit (age: {time_diff:.1f}s / {CACHE_DURATION}s)")
             return price_cache["data"]
 
     prices = {}
@@ -610,7 +611,16 @@ price_debug_log = []
 
 @app.get("/health")
 async def health_check():
-    """Endpoint de health check para verificar que la API funciona"""
+    """Endpoint de health check para verificar que la API funciona
+
+    También precarga precios en background para mantener el caché caliente.
+    Esto asegura que cuando un usuario visite la app, los precios ya estén disponibles.
+    """
+    import asyncio
+    # Ejecutar get_current_prices() en background para calentar el caché
+    # No bloqueamos la respuesta para que UptimeRobot reciba OK inmediatamente
+    asyncio.create_task(asyncio.to_thread(get_current_prices))
+
     return {
         "status": "ok",
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -768,10 +778,16 @@ import sys
 @app.on_event("startup")
 async def startup_warmup():
     """Pre-carga precios al iniciar para evitar mostrar 0s en cold start"""
-    import asyncio
     print("🔥 Warmup: Pre-cargando precios al arrancar...")
-    # Ejecutar en background para no bloquear el arranque de la app
-    asyncio.create_task(asyncio.to_thread(get_current_prices))
+    try:
+        # Ejecutar inmediatamente y esperar resultado para asegurar que el caché se llena
+        prices = get_current_prices()
+        if prices and any(p > 0 for p in prices.values()):
+            print(f"✅ Warmup exitoso: {sum(1 for p in prices.values() if p > 0)}/5 precios cargados")
+        else:
+            print("⚠️ Warmup: No se pudieron cargar precios al arrancar")
+    except Exception as e:
+        print(f"❌ Error en warmup: {e}")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
