@@ -765,6 +765,14 @@ def read_root():
 # Import necesario para la deteccion de rutas
 import sys
 
+@app.on_event("startup")
+async def startup_warmup():
+    """Pre-carga precios al iniciar para evitar mostrar 0s en cold start"""
+    import asyncio
+    print("🔥 Warmup: Pre-cargando precios al arrancar...")
+    # Ejecutar en background para no bloquear el arranque de la app
+    asyncio.create_task(asyncio.to_thread(get_current_prices))
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
