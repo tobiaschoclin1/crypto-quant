@@ -34,7 +34,15 @@ real_portfolio = {
 }
 TRADE_LOG = []
 market_data_cache = {}
-price_cache = {"data": {}, "last_update": None} 
+# Fallback: precios realistas iniciales para evitar mostrar 0s (se actualizan cuando sea posible)
+FALLBACK_PRICES = {
+    "BTCUSDT": 77500.0,
+    "ETHUSDT": 2440.0,
+    "SOLUSDT": 132.0,
+    "BNBUSDT": 595.0,
+    "ADAUSDT": 0.68
+}
+price_cache = {"data": FALLBACK_PRICES.copy(), "last_update": None} 
 
 @app.post("/set_balance")
 async def set_balance(request: Request):
@@ -508,7 +516,44 @@ def get_current_prices():
     prices = {}
     print(f"\n=== Fetching fresh prices at {now.strftime('%H:%M:%S')} ===")
 
-    # FUENTE 1: CoinGecko Simple API (más generosa con rate limits)
+    # FUENTE 1: CryptoCompare (mejor para uso en servidores, menos rate limiting)
+    try:
+        print("→ Trying CryptoCompare...")
+        url = "https://min-api.cryptocompare.com/data/pricemulti?fsyms=BTC,ETH,SOL,BNB,ADA&tsyms=USD"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get(url, timeout=15, headers=headers)
+        print(f"  CryptoCompare status: {response.status_code}")
+
+        if response.status_code == 200:
+            data = response.json()
+            print(f"  CryptoCompare response: {data}")
+
+            mapping = {
+                "BTC": "BTCUSDT",
+                "ETH": "ETHUSDT",
+                "SOL": "SOLUSDT",
+                "BNB": "BNBUSDT",
+                "ADA": "ADAUSDT"
+            }
+
+            for crypto, symbol in mapping.items():
+                if crypto in data and 'USD' in data[crypto]:
+                    prices[symbol] = float(data[crypto]['USD'])
+
+            if len(prices) >= 3:
+                print(f"✓ CryptoCompare SUCCESS: {len(prices)}/5 prices")
+                for sym, price in prices.items():
+                    print(f"  {sym}: ${price:.2f}")
+                price_cache["data"] = prices
+                price_cache["last_update"] = now
+                return prices
+        else:
+            print(f"  CryptoCompare failed: {response.text[:200]}")
+    except Exception as e:
+        print(f"✗ CryptoCompare error: {str(e)}")
+        traceback.print_exc()
+
+    # FUENTE 2: CoinGecko Simple API (puede tener rate limits)
     try:
         print("→ Trying CoinGecko...")
         url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,binancecoin,cardano&vs_currencies=usd"
@@ -603,15 +648,19 @@ def get_current_prices():
     except Exception as e:
         print(f"✗ Binance error: {str(e)}")
 
-    # Fallback: usar caché aunque sea viejo (mejor que 0s)
+    # Fallback: usar caché aunque sea viejo (mejor que valores por defecto)
     if price_cache["data"] and any(p > 0 for p in price_cache["data"].values()):
-        age = (now - price_cache["last_update"]).total_seconds()
-        print(f"⚠ Using stale cache (age: {age:.0f}s)")
+        if price_cache["last_update"]:
+            age = (now - price_cache["last_update"]).total_seconds()
+            print(f"⚠ Using stale cache (age: {age:.0f}s)")
+        else:
+            print(f"⚠ Using fallback prices (APIs unavailable)")
         return price_cache["data"]
 
-    # Último recurso: retornar 0s
-    print("✗ ALL SOURCES FAILED - returning zeros")
-    return {sym: 0 for sym in SYMBOLS}
+    # Último recurso: retornar precios fallback realistas (NUNCA 0s para portfolio profesional)
+    print("✗ ALL SOURCES FAILED - using fallback realistic prices")
+    print("   (Render's IP may be rate-limited or geo-blocked by crypto APIs)")
+    return FALLBACK_PRICES.copy()
 
 price_debug_log = []
 
@@ -639,7 +688,19 @@ async def test_apis_simple():
     import traceback
     results = {}
 
-    # Test 1: CoinGecko
+    # Test 1: CryptoCompare (MEJOR para servidores)
+    try:
+        url = "https://min-api.cryptocompare.com/data/pricemulti?fsyms=BTC,ETH,SOL&tsyms=USD"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get(url, timeout=10, headers=headers)
+        results["cryptocompare"] = {
+            "status": response.status_code,
+            "data": response.json() if response.status_code == 200 else response.text[:300]
+        }
+    except Exception as e:
+        results["cryptocompare"] = {"error": str(e), "traceback": traceback.format_exc()}
+
+    # Test 2: CoinGecko
     try:
         url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd"
         response = requests.get(url, timeout=10, headers={'Accept': 'application/json'})
@@ -673,6 +734,32 @@ async def test_apis_simple():
         results["coincap"] = {"error": str(e), "traceback": traceback.format_exc()}
 
     return results
+
+@app.get("/price_status")
+async def get_price_status():
+    """Indica si los precios son reales o de fallback"""
+    global price_cache
+    from datetime import datetime
+
+    is_fallback = price_cache["last_update"] is None
+    is_stale = False
+    age_seconds = 0
+
+    if price_cache["last_update"]:
+        age_seconds = (datetime.now() - price_cache["last_update"]).total_seconds()
+        is_stale = age_seconds > 900  # > 15 minutos
+
+    return {
+        "using_fallback": is_fallback,
+        "is_stale": is_stale,
+        "last_update": price_cache["last_update"].isoformat() if price_cache["last_update"] else None,
+        "age_seconds": age_seconds,
+        "message": (
+            "Using fallback prices - APIs unavailable" if is_fallback else
+            f"Live prices (updated {int(age_seconds)}s ago)" if not is_stale else
+            f"Stale prices (updated {int(age_seconds)}s ago)"
+        )
+    }
 
 @app.get("/force_refresh")
 async def force_refresh_prices():
