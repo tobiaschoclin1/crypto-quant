@@ -18,6 +18,12 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
+# --- HEALTH CHECK ENDPOINT (KEEP-ALIVE PARA RENDER) ---
+@app.get("/health")
+async def health_check():
+    """Endpoint para mantener la app activa en Render (evita sleep después de 15 min)"""
+    return {"status": "ok", "timestamp": datetime.now(pytz.UTC).isoformat()}
+
 # --- CONFIGURACIÓN DE ESTRATEGIA (SIN PROMESAS DE RENTABILIDAD) ---
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
 GLOBAL_USDT = 0.0 
