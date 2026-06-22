@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+README.md
+.replit
+replit.nix
+render.yaml
+app_movil.py
+index.html
