@@ -503,12 +503,12 @@
         }
 
         function startPriceLoop() {
-            // Actualizar cada 30 segundos (sincronizado con caché del backend)
+            // Actualizar cada 15 segundos (el backend cachea 10 s)
             setInterval(() => {
                 console.log('⏰ Price update interval triggered');
                 fetchPricesFromBackend();
-            }, 30000);
-            console.log('✓ Price update loop started (every 30s)');
+            }, 15000);
+            console.log('✓ Price update loop started (every 15s)');
         }
 
         function updateRadarPrice(sym, price) {
